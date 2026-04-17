@@ -11,6 +11,13 @@ import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
+function getBaseUrl(request: Request): string {
+  const url = new URL(request.url);
+  const host = request.headers.get("x-forwarded-host") ?? url.host;
+  const proto = request.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
+  return `${proto}://${host}`;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
@@ -35,7 +42,9 @@ export async function POST(request: Request) {
         responseTimeMins: gkTileRecords.responseTimeMins,
         agencyName: gkTileRecords.agencyName,
         tileUrlSquare: gkTileRecords.tileUrlSquare,
+        tileUrlSquareNamed: gkTileRecords.tileUrlSquareNamed,
         tileUrlIg: gkTileRecords.tileUrlIg,
+        tileUrlIgNamed: gkTileRecords.tileUrlIgNamed,
         period: gkTileRuns.period,
         pmFirstName: gkPms.firstName,
         pmEmail: gkPms.email,
@@ -71,13 +80,20 @@ export async function POST(request: Request) {
       );
     }
 
+    const baseUrl = getBaseUrl(request);
+    const downloadAllUrl = `${baseUrl}/api/tile-engine/records/${row.recordId}/download-all`;
+
     const result = await sendTileEmail({
       to: row.pmEmail,
       firstName: row.pmFirstName,
       agencyName: row.agencyName,
-      responseTimeMins: String(row.responseTimeMins),
+      responseTimeMins: parseFloat(String(row.responseTimeMins)),
       period: row.period,
       tileImageUrl,
+      tileUrlSquareNamed: row.tileUrlSquareNamed,
+      tileUrlIg: row.tileUrlIg,
+      tileUrlIgNamed: row.tileUrlIgNamed,
+      downloadAllUrl,
     });
 
     if (!result.ok) {

@@ -4,9 +4,13 @@ export type SendTileEmailInput = {
   to: string;
   firstName: string;
   agencyName: string;
-  responseTimeMins: string;
+  responseTimeMins: number;
   period: string;
   tileImageUrl: string;
+  tileUrlSquareNamed?: string | null;
+  tileUrlIg?: string | null;
+  tileUrlIgNamed?: string | null;
+  downloadAllUrl?: string | null;
 };
 
 export type SendTileEmailResult = {
@@ -42,18 +46,101 @@ export function getSubjectLine(period: string): string {
   return `Your response time in ${period} was incredible`;
 }
 
+export function naturalTime(decimalMins: number): string {
+  if (!Number.isFinite(decimalMins) || decimalMins < 1) {
+    return "less than a minute";
+  }
+  let mins = Math.floor(decimalMins);
+  let secs = Math.round((decimalMins % 1) * 60);
+  if (secs === 60) {
+    mins += 1;
+    secs = 0;
+  }
+  const minLabel = mins === 1 ? "minute" : "minutes";
+  if (secs === 0) return `${mins} ${minLabel}`;
+  const secLabel = secs === 1 ? "second" : "seconds";
+  return `${mins} ${minLabel} and ${secs} ${secLabel}`;
+}
+
+type DownloadLink = { url: string; label: string; description: string };
+
+function buildDownloadLinks(input: {
+  tileUrlSquareNamed?: string | null;
+  tileUrlIg?: string | null;
+  tileUrlIgNamed?: string | null;
+  downloadAllUrl?: string | null;
+}): DownloadLink[] {
+  const links: DownloadLink[] = [];
+  if (input.tileUrlSquareNamed) {
+    links.push({
+      url: input.tileUrlSquareNamed,
+      label: "Square version with your name",
+      description: "For when your agency shares it and tags you",
+    });
+  }
+  if (input.tileUrlIg) {
+    links.push({
+      url: input.tileUrlIg,
+      label: "Instagram version",
+      description: "Optimised for Instagram feed posts",
+    });
+  }
+  if (input.tileUrlIgNamed) {
+    links.push({
+      url: input.tileUrlIgNamed,
+      label: "Instagram version with your name",
+      description: "For agency Instagram posts",
+    });
+  }
+  if (input.downloadAllUrl) {
+    links.push({
+      url: input.downloadAllUrl,
+      label: "Download all versions",
+      description: "ZIP with every variant",
+    });
+  }
+  return links;
+}
+
 export function buildEmailHtml(input: {
   firstName: string;
   agencyName: string;
-  responseTimeMins: string;
+  responseTimeMins: number;
   period: string;
   tileCid: string;
+  downloadLinks: DownloadLink[];
 }): string {
-  const { firstName, agencyName, responseTimeMins, period, tileCid } = input;
+  const {
+    firstName,
+    agencyName,
+    responseTimeMins,
+    period,
+    tileCid,
+    downloadLinks,
+  } = input;
 
-  const professional = `At ${agencyName}, we believe fast communication is the foundation of great property management. Powered by @Ailo, our average response time is ${responseTimeMins} minutes. Your property is in good hands. #propertymanagement #ailo`;
-  const conversational = `Ever wonder how fast your property manager responds to your messages? Mine is ${responseTimeMins} minutes on average. Proud to be powered by @Ailo.`;
-  const shortCaption = `${responseTimeMins} minute average response time. Not hours. Not days. Minutes. #poweredbyailo`;
+  const niceTime = naturalTime(responseTimeMins);
+
+  const professional = `At ${agencyName}, we believe fast communication is the foundation of great property management. Powered by @Ailo, our average response time is ${niceTime}. Your property is in good hands. #propertymanagement #ailo`;
+  const conversational = `Ever wonder how fast your property manager responds to your messages? Mine is ${niceTime} on average. Proud to be powered by @Ailo.`;
+  const shortCaption = `${niceTime} average response time. Not hours. Not days. Minutes. #poweredbyailo`;
+
+  const downloadLinksHtml =
+    downloadLinks.length === 0
+      ? ""
+      : `<tr>
+            <td style="padding:0 40px 24px 40px;">
+              <p style="margin:0 0 12px 0;font-size:13px;font-weight:600;color:#9A9BA7;letter-spacing:0.4px;text-transform:uppercase;">Other versions</p>
+              ${downloadLinks
+                .map(
+                  (link) => `<div style="margin-bottom:10px;">
+                <a href="${link.url}" style="color:#EE0B4F;text-decoration:none;font-weight:600;font-size:15px;">${link.label} &rarr;</a>
+                <p style="margin:2px 0 0 0;font-size:13px;color:#9A9BA7;line-height:1.5;">${link.description}</p>
+              </div>`,
+                )
+                .join("\n              ")}
+            </td>
+          </tr>`;
 
   return `<!DOCTYPE html>
 <html>
@@ -70,7 +157,7 @@ export function buildEmailHtml(input: {
           <tr>
             <td style="padding:40px 40px 24px 40px;">
               <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:#292B32;">Hi ${firstName},</p>
-              <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:#292B32;">Your average response time in ${period} was <strong>${responseTimeMins} minutes</strong>. That's genuinely exceptional.</p>
+              <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:#292B32;">Your average response time in ${period} was <strong>${niceTime}</strong>. That's genuinely exceptional.</p>
               <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:#292B32;">We made you something to share.</p>
             </td>
           </tr>
@@ -79,6 +166,7 @@ export function buildEmailHtml(input: {
               <img src="cid:${tileCid}" alt="Response Time Champion tile for ${firstName}" width="480" style="display:block;max-width:100%;height:auto;border-radius:12px;" />
             </td>
           </tr>
+          ${downloadLinksHtml}
           <tr>
             <td style="padding:0 40px 24px 40px;">
               <p style="margin:0 0 12px 0;font-size:16px;line-height:1.6;color:#292B32;">Feel free to share it on LinkedIn, Instagram, your website, or wherever you'd like. A few caption ideas if they help:</p>
@@ -118,26 +206,35 @@ export function buildEmailHtml(input: {
 function buildEmailText(input: {
   firstName: string;
   agencyName: string;
-  responseTimeMins: string;
+  responseTimeMins: number;
   period: string;
+  downloadLinks: DownloadLink[];
 }): string {
-  const { firstName, agencyName, responseTimeMins, period } = input;
+  const { firstName, agencyName, responseTimeMins, period, downloadLinks } =
+    input;
+  const niceTime = naturalTime(responseTimeMins);
+  const linksBlock =
+    downloadLinks.length === 0
+      ? ""
+      : `\nOther versions:\n${downloadLinks
+          .map((l) => `- ${l.label} (${l.description}): ${l.url}`)
+          .join("\n")}\n`;
   return `Hi ${firstName},
 
-Your average response time in ${period} was ${responseTimeMins} minutes. That's genuinely exceptional.
+Your average response time in ${period} was ${niceTime}. That's genuinely exceptional.
 
 We made you something to share — your Response Time Champions tile is attached.
-
+${linksBlock}
 A few caption ideas if they help:
 
 Professional:
-At ${agencyName}, we believe fast communication is the foundation of great property management. Powered by @Ailo, our average response time is ${responseTimeMins} minutes. Your property is in good hands. #propertymanagement #ailo
+At ${agencyName}, we believe fast communication is the foundation of great property management. Powered by @Ailo, our average response time is ${niceTime}. Your property is in good hands. #propertymanagement #ailo
 
 Conversational:
-Ever wonder how fast your property manager responds to your messages? Mine is ${responseTimeMins} minutes on average. Proud to be powered by @Ailo.
+Ever wonder how fast your property manager responds to your messages? Mine is ${niceTime} on average. Proud to be powered by @Ailo.
 
 Short:
-${responseTimeMins} minute average response time. Not hours. Not days. Minutes. #poweredbyailo
+${niceTime} average response time. Not hours. Not days. Minutes. #poweredbyailo
 
 No pressure to post — you've earned the recognition either way.
 
@@ -163,18 +260,27 @@ export async function sendTileEmail(
     const tileBuffer = await fetchImageBuffer(input.tileImageUrl);
     const tileCid = `tile-${Date.now()}@growth-kit`;
 
+    const downloadLinks = buildDownloadLinks({
+      tileUrlSquareNamed: input.tileUrlSquareNamed,
+      tileUrlIg: input.tileUrlIg,
+      tileUrlIgNamed: input.tileUrlIgNamed,
+      downloadAllUrl: input.downloadAllUrl,
+    });
+
     const html = buildEmailHtml({
       firstName: input.firstName,
       agencyName: input.agencyName,
       responseTimeMins: input.responseTimeMins,
       period: input.period,
       tileCid,
+      downloadLinks,
     });
     const text = buildEmailText({
       firstName: input.firstName,
       agencyName: input.agencyName,
       responseTimeMins: input.responseTimeMins,
       period: input.period,
+      downloadLinks,
     });
 
     const fromUser = process.env.GMAIL_USER!;

@@ -11,9 +11,25 @@ import {
   AlertTriangle,
   XCircle,
   Loader2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
-type Step = "upload" | "map" | "validate" | "review" | "complete";
+type Step = "upload" | "map" | "filter" | "validate" | "review" | "complete";
+
+type FilterSettings = {
+  maxResponse: number;
+  minResponse: number;
+  minReplies: number;
+  repliesColumn: string;
+};
+
+type FilterExclusion = {
+  rowIndex: number;
+  name: string;
+  agency: string;
+  reasons: string[];
+};
 
 type ParsedData = {
   headers: string[];
@@ -77,6 +93,15 @@ export default function TileEnginePage() {
     email: "",
   });
   const [period, setPeriod] = useState(getDefaultPeriod());
+  const [filters, setFilters] = useState<FilterSettings>({
+    maxResponse: 30,
+    minResponse: 1,
+    minReplies: 50,
+    repliesColumn: "",
+  });
+  const [filterExcluded, setFilterExcluded] = useState<FilterExclusion[]>([]);
+  const [showExcluded, setShowExcluded] = useState(false);
+  const [filteredRows, setFilteredRows] = useState<Record<string, string>[]>([]);
   const [validationResults, setValidationResults] = useState<
     ValidationResult[]
   >([]);
@@ -151,12 +176,97 @@ export default function TileEnginePage() {
     });
   }
 
-  function runValidation() {
+  function goToFilterStep() {
     if (!parsed) return;
+    if (!filters.repliesColumn) {
+      const guess = parsed.headers.find((h) => {
+        const lower = h.toLowerCase().replace(/[_\s]+/g, "");
+        return (
+          lower.includes("replies") ||
+          lower.includes("replycount") ||
+          lower.includes("messagecount") ||
+          lower === "messages" ||
+          lower === "replies"
+        );
+      });
+      if (guess) setFilters((prev) => ({ ...prev, repliesColumn: guess }));
+    }
+    setStep("filter");
+  }
+
+  function applyFilters() {
+    if (!parsed) return;
+
+    const included: Record<string, string>[] = [];
+    const excluded: FilterExclusion[] = [];
 
     const useFullName = !!mapping.fullName;
 
-    const results: ValidationResult[] = parsed.rows.map((row, idx) => {
+    parsed.rows.forEach((row, idx) => {
+      const reasons: string[] = [];
+      const raw = row[mapping.responseTimeMins] || "";
+      const responseTime = parseFloat(raw);
+
+      if (raw === "" || isNaN(responseTime)) {
+        reasons.push("Response time is missing or not a number");
+      } else {
+        if (responseTime > filters.maxResponse) {
+          reasons.push(
+            `Response time ${responseTime} min exceeds max ${filters.maxResponse} min`,
+          );
+        }
+        if (responseTime < filters.minResponse) {
+          reasons.push(
+            `Response time ${responseTime} min below min ${filters.minResponse} min`,
+          );
+        }
+      }
+
+      if (filters.repliesColumn) {
+        const repliesRaw = row[filters.repliesColumn] || "";
+        const replies = parseFloat(repliesRaw);
+        if (repliesRaw === "" || isNaN(replies)) {
+          reasons.push("Reply count is missing or not a number");
+        } else if (replies < filters.minReplies) {
+          reasons.push(
+            `${replies} replies below threshold ${filters.minReplies}`,
+          );
+        }
+      }
+
+      if (reasons.length > 0) {
+        let firstName = "";
+        let lastName = "";
+        if (useFullName) {
+          const split = splitFullName(row[mapping.fullName] || "");
+          firstName = split.firstName;
+          lastName = split.lastName;
+        } else {
+          firstName = (row[mapping.firstName] || "").trim();
+          lastName = (row[mapping.lastName] || "").trim();
+        }
+        const fullName = `${firstName} ${lastName}`.trim() || "(unnamed)";
+        excluded.push({
+          rowIndex: idx + 1,
+          name: fullName,
+          agency: (row[mapping.agencyName] || "").trim() || "(no agency)",
+          reasons,
+        });
+      } else {
+        included.push(row);
+      }
+    });
+
+    setFilteredRows(included);
+    setFilterExcluded(excluded);
+  }
+
+  function runValidation() {
+    if (!parsed || filteredRows.length === 0) return;
+
+    const useFullName = !!mapping.fullName;
+
+    const results: ValidationResult[] = filteredRows.map((row, idx) => {
       let firstName: string;
       let lastName: string;
 
@@ -324,7 +434,7 @@ export default function TileEnginePage() {
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 text-xs text-[#9A9BA7]">
-        {(["upload", "map", "validate", "complete"] as const).map((s, i) => (
+        {(["upload", "map", "filter", "validate", "complete"] as const).map((s, i) => (
           <span key={s} className="flex items-center gap-2">
             {i > 0 && <span className="text-gray-300">{">"}</span>}
             <span
@@ -527,7 +637,7 @@ export default function TileEnginePage() {
               Back
             </Button>
             <Button
-              onClick={runValidation}
+              onClick={goToFilterStep}
               disabled={
                 (!mapping.fullName && (!mapping.firstName || !mapping.lastName)) ||
                 !mapping.agencyName ||
@@ -536,13 +646,242 @@ export default function TileEnginePage() {
               }
               className="bg-[#EE0B4F] hover:bg-[#d40945]"
             >
-              Validate <ArrowRight className="size-4" />
+              Next: filters <ArrowRight className="size-4" />
             </Button>
           </div>
         </div>
       )}
 
-      {/* Step 3: Validate + Review */}
+      {/* Step 3: Pre-filter */}
+      {step === "filter" && parsed && (
+        <div className="space-y-6">
+          <div className="rounded-xl border border-gray-100 bg-white p-6">
+            <h2 className="mb-1 text-sm font-semibold text-[#292B32]">
+              Filter thresholds
+            </h2>
+            <p className="mb-4 text-xs text-[#9A9BA7]">
+              Rows that fall outside these thresholds are excluded before
+              validation. Adjust the numbers then click Apply.
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[#9A9BA7]">
+                  Min response time (mins)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={filters.minResponse}
+                  onChange={(e) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      minResponse: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#EE0B4F]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[#9A9BA7]">
+                  Max response time (mins)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={filters.maxResponse}
+                  onChange={(e) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      maxResponse: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#EE0B4F]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[#9A9BA7]">
+                  Min replies
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={filters.minReplies}
+                  onChange={(e) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      minReplies: parseInt(e.target.value, 10) || 0,
+                    }))
+                  }
+                  disabled={!filters.repliesColumn}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#EE0B4F] disabled:bg-gray-50 disabled:text-[#9A9BA7]"
+                />
+              </div>
+              <div className="col-span-3">
+                <label className="mb-1 block text-xs font-medium text-[#9A9BA7]">
+                  Replies column (optional)
+                </label>
+                <select
+                  value={filters.repliesColumn}
+                  onChange={(e) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      repliesColumn: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#EE0B4F]"
+                >
+                  <option value="">
+                    Skip this filter (no reply threshold)
+                  </option>
+                  {parsed.headers.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+                {!filters.repliesColumn && (
+                  <p className="mt-1 text-xs text-[#9A9BA7]">
+                    Pick the column that tracks reply or message counts to
+                    enable the replies filter.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="mt-4">
+              <Button
+                variant="outline"
+                onClick={applyFilters}
+                disabled={!mapping.responseTimeMins}
+              >
+                Apply filters
+              </Button>
+            </div>
+          </div>
+
+          {(filteredRows.length > 0 || filterExcluded.length > 0) && (
+            <div className="rounded-xl border border-gray-100 bg-white p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-[#292B32]">
+                    Filter summary
+                  </h2>
+                  <p className="mt-1 text-xs text-[#9A9BA7]">
+                    {filteredRows.length} of {parsed.rows.length} rows will
+                    proceed to validation. {filterExcluded.length} excluded.
+                  </p>
+                </div>
+                <div className="flex gap-3 text-center">
+                  <div className="rounded-lg bg-green-50 px-4 py-2">
+                    <p className="text-lg font-bold text-green-600">
+                      {filteredRows.length}
+                    </p>
+                    <p className="text-xs text-[#9A9BA7]">Included</p>
+                  </div>
+                  <div className="rounded-lg bg-amber-50 px-4 py-2">
+                    <p className="text-lg font-bold text-amber-600">
+                      {filterExcluded.length}
+                    </p>
+                    <p className="text-xs text-[#9A9BA7]">Excluded</p>
+                  </div>
+                </div>
+              </div>
+
+              {filterExcluded.length > 0 && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/40">
+                  <button
+                    onClick={() => setShowExcluded((v) => !v)}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-amber-800"
+                  >
+                    <span className="flex items-center gap-2">
+                      {showExcluded ? (
+                        <ChevronDown className="size-4" />
+                      ) : (
+                        <ChevronRight className="size-4" />
+                      )}
+                      {filterExcluded.length} excluded{" "}
+                      {filterExcluded.length === 1 ? "row" : "rows"}
+                    </span>
+                    <span className="text-xs text-amber-700">
+                      {showExcluded ? "Hide" : "Show"}
+                    </span>
+                  </button>
+                  {showExcluded && (
+                    <div className="border-t border-amber-200">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-amber-800">
+                            <th className="px-4 py-2 text-left font-medium">
+                              Row
+                            </th>
+                            <th className="px-4 py-2 text-left font-medium">
+                              Name
+                            </th>
+                            <th className="px-4 py-2 text-left font-medium">
+                              Agency
+                            </th>
+                            <th className="px-4 py-2 text-left font-medium">
+                              Reason
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filterExcluded.map((ex) => (
+                            <tr
+                              key={ex.rowIndex}
+                              className="border-t border-amber-100/80 text-amber-900"
+                            >
+                              <td className="px-4 py-2 align-top">
+                                {ex.rowIndex}
+                              </td>
+                              <td className="px-4 py-2 align-top">
+                                {ex.name}
+                              </td>
+                              <td className="px-4 py-2 align-top">
+                                {ex.agency}
+                              </td>
+                              <td className="px-4 py-2 align-top">
+                                {ex.reasons.join("; ")}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {filteredRows.length === 0 && (
+                <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <XCircle className="mt-0.5 size-4 shrink-0" />
+                  <p>
+                    Every row was excluded by the current filters. Loosen the
+                    thresholds before you can continue.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={() => setStep("map")}>
+              Back
+            </Button>
+            <Button
+              onClick={runValidation}
+              disabled={filteredRows.length === 0}
+              className="bg-[#EE0B4F] hover:bg-[#d40945]"
+            >
+              Validate {filteredRows.length} {filteredRows.length === 1 ? "row" : "rows"} <ArrowRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 4: Validate + Review */}
       {step === "validate" && (
         <div className="space-y-6">
           <div className="flex gap-4">
@@ -637,7 +976,7 @@ export default function TileEnginePage() {
           )}
 
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setStep("map")}>
+            <Button variant="outline" onClick={() => setStep("filter")}>
               Back
             </Button>
             <Button

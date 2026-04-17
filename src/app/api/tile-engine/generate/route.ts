@@ -93,6 +93,7 @@ export async function POST(request: Request) {
 
       const tileUrls: Record<string, string> = {};
       let uploadFailures = 0;
+      const cacheBust = Date.now().toString();
 
       const displayAgencyName = agency?.displayName ?? agency?.name ?? record.agencyName;
 
@@ -131,8 +132,9 @@ export async function POST(request: Request) {
           data: { publicUrl },
         } = supabase.storage.from("growth-kit-assets").getPublicUrl(fileName);
 
-        console.log(`[tile-gen] Uploaded ${variant.key}: ${publicUrl}`);
-        tileUrls[variant.dbField] = publicUrl;
+        const versionedUrl = `${publicUrl}?v=${cacheBust}`;
+        console.log(`[tile-gen] Uploaded ${variant.key}: ${versionedUrl}`);
+        tileUrls[variant.dbField] = versionedUrl;
       }
 
       // Only mark as generated if at least one tile was uploaded

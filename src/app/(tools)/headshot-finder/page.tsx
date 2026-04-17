@@ -36,6 +36,15 @@ type Totals = {
   rejected: number;
 };
 
+const ACTION_HELP = {
+  discover:
+    "Searches Google for each agency's website using AI to pick the best match",
+  scrape:
+    "Visits discovered websites and finds the team/people page for each agency",
+  extract:
+    "Scrapes team pages, extracts headshot photos, and matches them to PMs by name",
+} as const;
+
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   pending: {
     label: "Pending",
@@ -274,43 +283,57 @@ export default function HeadshotFinderPage() {
         <h2 className="mb-3 text-sm font-semibold text-[#292B32]">
           Pipeline actions
         </h2>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            onClick={() => runAction("discover")}
-            disabled={!!running}
-            className="bg-[#EE0B4F] hover:bg-[#d40945]"
-          >
-            {running === "discover" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Search className="size-4" />
-            )}
-            Run discovery
-          </Button>
-          <Button
-            onClick={() => runAction("scrape")}
-            disabled={!!running}
-            variant="outline"
-          >
-            {running === "scrape" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Download className="size-4" />
-            )}
-            Run scrape
-          </Button>
-          <Button
-            onClick={() => runAction("extract")}
-            disabled={!!running}
-            variant="outline"
-          >
-            {running === "extract" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Camera className="size-4" />
-            )}
-            Run extraction
-          </Button>
+        <div className="flex flex-wrap gap-6">
+          <div className="flex max-w-xs flex-col gap-2">
+            <Button
+              onClick={() => runAction("discover")}
+              disabled={!!running}
+              title={ACTION_HELP.discover}
+              className="w-fit bg-[#EE0B4F] hover:bg-[#d40945]"
+            >
+              {running === "discover" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Search className="size-4" />
+              )}
+              Run discovery
+            </Button>
+            <p className="text-[13px] text-[#9A9BA7]">{ACTION_HELP.discover}</p>
+          </div>
+          <div className="flex max-w-xs flex-col gap-2">
+            <Button
+              onClick={() => runAction("scrape")}
+              disabled={!!running}
+              title={ACTION_HELP.scrape}
+              variant="outline"
+              className="w-fit"
+            >
+              {running === "scrape" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              Run scrape
+            </Button>
+            <p className="text-[13px] text-[#9A9BA7]">{ACTION_HELP.scrape}</p>
+          </div>
+          <div className="flex max-w-xs flex-col gap-2">
+            <Button
+              onClick={() => runAction("extract")}
+              disabled={!!running}
+              title={ACTION_HELP.extract}
+              variant="outline"
+              className="w-fit"
+            >
+              {running === "extract" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Camera className="size-4" />
+              )}
+              Run extraction
+            </Button>
+            <p className="text-[13px] text-[#9A9BA7]">{ACTION_HELP.extract}</p>
+          </div>
         </div>
         {running && progress && (
           <div className="mt-4 space-y-2">

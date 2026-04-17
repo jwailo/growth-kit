@@ -234,10 +234,14 @@ export default function HeadshotFinderPage() {
           </Button>
           <Button
             onClick={() => runAction("extract")}
-            disabled
+            disabled={!!running}
             variant="outline"
           >
-            <Camera className="size-4" />
+            {running === "extract" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Camera className="size-4" />
+            )}
             Run extraction
           </Button>
         </div>

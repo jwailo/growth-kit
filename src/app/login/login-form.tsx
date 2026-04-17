@@ -6,6 +6,16 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 export function LoginForm() {
+  // TEMP DEBUG: remove once Vercel env vars are verified
+  console.log(
+    "[login-form] NEXT_PUBLIC_SUPABASE_URL:",
+    JSON.stringify(process.env.NEXT_PUBLIC_SUPABASE_URL),
+  );
+  console.log(
+    "[login-form] NEXT_PUBLIC_SUPABASE_ANON_KEY:",
+    JSON.stringify(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+  );
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

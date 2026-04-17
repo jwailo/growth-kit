@@ -42,6 +42,7 @@ export default function AssetLibraryPage() {
     type: "headshot" | "logo";
     entityId: string;
   } | null>(null);
+  const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
 
   const fetchData = useCallback(async () => {
     const [agencyRes, pmRes] = await Promise.all([
@@ -80,6 +81,53 @@ export default function AssetLibraryPage() {
   function triggerUpload(type: "headshot" | "logo", entityId: string) {
     setUploadTarget({ type, entityId });
     fileInputRef.current?.click();
+  }
+
+  async function savePmEmail(pmId: string, value: string) {
+    const current = pms.find((p) => p.id === pmId);
+    const trimmed = value.trim();
+    const normalised = trimmed.length === 0 ? null : trimmed;
+    if (current && (current.email ?? null) === normalised) return;
+
+    if (
+      normalised !== null &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalised)
+    ) {
+      setEmailErrors((prev) => ({
+        ...prev,
+        [pmId]: "Invalid email address",
+      }));
+      return;
+    }
+
+    setEmailErrors((prev) => {
+      const { [pmId]: _omit, ...rest } = prev;
+      void _omit;
+      return rest;
+    });
+    setPms((prev) =>
+      prev.map((p) => (p.id === pmId ? { ...p, email: normalised } : p)),
+    );
+
+    try {
+      const res = await fetch(`/api/tile-engine/pms/${pmId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalised }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setEmailErrors((prev) => ({
+          ...prev,
+          [pmId]: data.error ?? "Failed to save",
+        }));
+      }
+    } catch (err) {
+      setEmailErrors((prev) => ({
+        ...prev,
+        [pmId]: err instanceof Error ? err.message : "Network error",
+      }));
+    }
   }
 
   async function saveDisplayName(agencyId: string, value: string) {
@@ -299,8 +347,29 @@ export default function AssetLibraryPage() {
                     {pm.firstName} {pm.lastName}
                   </td>
                   <td className="px-4 py-3 text-[#9A9BA7]">{pm.agencyName}</td>
-                  <td className="px-4 py-3 text-[#9A9BA7]">
-                    {pm.email || "—"}
+                  <td className="px-4 py-3">
+                    <input
+                      type="email"
+                      key={`${pm.id}-${pm.email ?? ""}`}
+                      defaultValue={pm.email ?? ""}
+                      placeholder="—"
+                      onBlur={(e) => savePmEmail(pm.id, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        if (e.key === "Escape") {
+                          e.currentTarget.value = pm.email ?? "";
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className={`w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm outline-none hover:border-gray-200 focus:border-[#EE0B4F] ${
+                        pm.email ? "text-[#292B32]" : "text-[#9A9BA7]"
+                      } ${emailErrors[pm.id] ? "border-red-300 focus:border-red-500" : ""}`}
+                    />
+                    {emailErrors[pm.id] && (
+                      <p className="mt-0.5 text-xs text-red-600">
+                        {emailErrors[pm.id]}
+                      </p>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {pm.headshotUrl ? (

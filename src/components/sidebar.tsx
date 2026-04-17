@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { LayoutGrid, LogOut, Image, Upload } from "lucide-react";
+import { LayoutGrid, LogOut, Image, Camera } from "lucide-react";
 
 const navItems = [
   {
@@ -13,6 +13,11 @@ const navItems = [
     children: [
       { label: "Assets", href: "/tile-engine/assets", icon: Image },
     ],
+  },
+  {
+    label: "Headshot Finder",
+    href: "/headshot-finder",
+    icon: Camera,
   },
 ];
 
@@ -49,7 +54,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
                 <item.icon className="size-4" />
                 {item.label}
               </Link>
-              {isActive && item.children && (
+              {isActive && "children" in item && item.children && (
                 <div className="ml-4 mt-1 space-y-1 border-l border-white/10 pl-3">
                   {item.children.map((child) => (
                     <Link

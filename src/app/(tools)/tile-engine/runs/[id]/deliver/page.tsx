@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
+  buildDownloadLinks,
+  buildEmailText,
+  getSubjectLine,
+} from "@/lib/email/format";
+import {
   Download,
   Loader2,
   Check,
@@ -46,33 +51,27 @@ type SendState =
   | { kind: "sent" }
   | { kind: "failed"; error: string };
 
-function generateEmailCopy(rec: TileRecord, period: string): string {
-  const time = rec.responseTimeMins;
-  return `Hi ${rec.pmFirstName},
-
-Your average response time in ${period} was ${time} minutes. That's genuinely exceptional.
-
-We made you something to share — your Response Time Champions tile is attached.
-
-A few caption ideas if they help:
-
-Professional:
-"At ${rec.agencyName}, we believe fast communication is the foundation of great property management. Powered by @Ailo, our average response time is ${time} minutes. Your property is in good hands. #propertymanagement #ailo"
-
-Conversational:
-"Ever wonder how fast your property manager responds to your messages? Mine is ${time} minutes on average. Proud to be powered by @Ailo."
-
-Short:
-"${time} minute average response time. Not hours. Not days. Minutes. #poweredbyailo"
-
-No pressure to post — you've earned the recognition either way.
-
-Thanks for everything you do,
-The Ailo Team`;
-}
-
-function getSubjectLine(period: string): string {
-  return `Your response time in ${period} was incredible`;
+function buildPreviewCopy(
+  rec: TileRecord,
+  period: string,
+  origin: string,
+): string {
+  const downloadAllUrl = origin
+    ? `${origin}/api/tile-engine/records/${rec.id}/download-all`
+    : null;
+  const downloadLinks = buildDownloadLinks({
+    tileUrlSquareNamed: rec.tileUrlSquareNamed,
+    tileUrlIg: rec.tileUrlIg,
+    tileUrlIgNamed: rec.tileUrlIgNamed,
+    downloadAllUrl,
+  });
+  return buildEmailText({
+    firstName: rec.pmFirstName,
+    agencyName: rec.agencyName,
+    responseTimeMins: parseFloat(rec.responseTimeMins),
+    period,
+    downloadLinks,
+  });
 }
 
 export default function DeliveryPage() {
@@ -91,6 +90,11 @@ export default function DeliveryPage() {
     total: number;
   } | null>(null);
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+  const [origin, setOrigin] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setOrigin(window.location.origin);
+  }, []);
 
   async function fetchRun() {
     const res = await fetch(`/api/tile-engine/runs/${id}`);
@@ -438,7 +442,7 @@ export default function DeliveryPage() {
       {/* Per-PM delivery cards */}
       <div className="space-y-4">
         {generatedRecords.map((rec) => {
-          const emailCopy = generateEmailCopy(rec, run.period);
+          const emailCopy = buildPreviewCopy(rec, run.period, origin);
           const subject = getSubjectLine(run.period);
           const isSent = !!rec.sentAt;
           const sendState: SendState = sendStates[rec.id] ?? { kind: "idle" };

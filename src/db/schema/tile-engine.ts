@@ -10,6 +10,7 @@ import {
 export const gkAgencies = pgTable("gk_agencies", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
+  displayName: text("display_name"),
   logoUrl: text("logo_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

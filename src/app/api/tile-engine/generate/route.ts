@@ -84,9 +84,11 @@ export async function POST(request: Request) {
       const tileUrls: Record<string, string> = {};
       let uploadFailures = 0;
 
+      const displayAgencyName = agency?.displayName ?? agency?.name ?? record.agencyName;
+
       for (const variant of TILE_VARIANTS) {
         const png = await renderTile({
-          agencyName: record.agencyName,
+          agencyName: displayAgencyName,
           firstName,
           lastName,
           responseTime: record.responseTimeMins,

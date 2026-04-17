@@ -1,7 +1,12 @@
 import { db } from "@/db";
-import { gkTileRuns, gkTileRecords, gkPms } from "@/db/schema/tile-engine";
+import {
+  gkTileRuns,
+  gkTileRecords,
+  gkPms,
+  gkAgencies,
+} from "@/db/schema/tile-engine";
 import { createClient } from "@/lib/supabase/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -33,7 +38,7 @@ export async function GET(
       .select({
         id: gkTileRecords.id,
         pmId: gkTileRecords.pmId,
-        agencyName: gkTileRecords.agencyName,
+        agencyName: sql<string>`coalesce(${gkAgencies.displayName}, ${gkAgencies.name}, ${gkTileRecords.agencyName})`,
         responseTimeMins: gkTileRecords.responseTimeMins,
         tileUrlSquare: gkTileRecords.tileUrlSquare,
         tileUrlSquareNamed: gkTileRecords.tileUrlSquareNamed,
@@ -47,6 +52,7 @@ export async function GET(
       })
       .from(gkTileRecords)
       .innerJoin(gkPms, eq(gkTileRecords.pmId, gkPms.id))
+      .innerJoin(gkAgencies, eq(gkPms.agencyId, gkAgencies.id))
       .where(eq(gkTileRecords.runId, id))
       .orderBy(gkPms.lastName, gkPms.firstName);
 

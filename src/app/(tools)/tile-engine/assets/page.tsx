@@ -14,6 +14,7 @@ import {
 type Agency = {
   id: string;
   name: string;
+  displayName: string | null;
   logoUrl: string | null;
   pmCount: number;
 };
@@ -79,6 +80,29 @@ export default function AssetLibraryPage() {
   function triggerUpload(type: "headshot" | "logo", entityId: string) {
     setUploadTarget({ type, entityId });
     fileInputRef.current?.click();
+  }
+
+  async function saveDisplayName(agencyId: string, value: string) {
+    const current = agencies.find((a) => a.id === agencyId);
+    const trimmed = value.trim();
+    const normalised = trimmed.length === 0 ? null : trimmed;
+    if (current && (current.displayName ?? null) === normalised) return;
+
+    setAgencies((prev) =>
+      prev.map((a) =>
+        a.id === agencyId ? { ...a, displayName: normalised } : a,
+      ),
+    );
+
+    try {
+      await fetch(`/api/tile-engine/agencies/${agencyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: normalised }),
+      });
+    } catch (err) {
+      console.error("Failed to save display name", err);
+    }
   }
 
   const missingAgencyLogos = agencies.filter((a) => !a.logoUrl);
@@ -171,10 +195,21 @@ export default function AssetLibraryPage() {
                       )
                     }
                     className="block truncate text-sm font-medium text-[#292B32] hover:text-[#EE0B4F]"
+                    title={agency.name}
                   >
                     {agency.name}
                   </button>
-                  <p className="text-xs text-[#9A9BA7]">
+                  <input
+                    type="text"
+                    defaultValue={agency.displayName ?? ""}
+                    placeholder="Display name (optional)"
+                    onBlur={(e) => saveDisplayName(agency.id, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                    }}
+                    className="mt-0.5 block w-full truncate rounded border border-transparent px-1 py-0.5 text-xs text-[#EE0B4F] outline-none hover:border-gray-200 focus:border-[#EE0B4F] focus:text-[#292B32]"
+                  />
+                  <p className="mt-0.5 text-xs text-[#9A9BA7]">
                     {agency.pmCount} PM{agency.pmCount !== 1 ? "s" : ""}
                   </p>
                 </div>

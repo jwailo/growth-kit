@@ -19,6 +19,7 @@ export async function GET() {
       .select({
         id: gkAgencies.id,
         name: gkAgencies.name,
+        displayName: gkAgencies.displayName,
         logoUrl: gkAgencies.logoUrl,
         createdAt: gkAgencies.createdAt,
         pmCount: sql<number>`count(${gkPms.id})::int`,

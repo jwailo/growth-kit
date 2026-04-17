@@ -3,10 +3,11 @@ import {
   gkTileRecords,
   gkTileRuns,
   gkPms,
+  gkAgencies,
 } from "@/db/schema/tile-engine";
 import { createClient } from "@/lib/supabase/server";
 import { sendTileEmail } from "@/lib/email/sender";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 300;
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
       .select({
         recordId: gkTileRecords.id,
         responseTimeMins: gkTileRecords.responseTimeMins,
-        agencyName: gkTileRecords.agencyName,
+        agencyName: sql<string>`coalesce(${gkAgencies.displayName}, ${gkAgencies.name}, ${gkTileRecords.agencyName})`,
         tileUrlSquare: gkTileRecords.tileUrlSquare,
         tileUrlSquareNamed: gkTileRecords.tileUrlSquareNamed,
         tileUrlIg: gkTileRecords.tileUrlIg,
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
       .from(gkTileRecords)
       .innerJoin(gkTileRuns, eq(gkTileRecords.runId, gkTileRuns.id))
       .innerJoin(gkPms, eq(gkTileRecords.pmId, gkPms.id))
+      .innerJoin(gkAgencies, eq(gkPms.agencyId, gkAgencies.id))
       .where(
         and(
           eq(gkTileRecords.runId, runId),

@@ -19,6 +19,15 @@ type MappedRow = {
   email?: string;
 };
 
+function extractTradingAsName(raw: string): string | null {
+  const match = raw.match(
+    /\b(?:t\/as?|trading\s+as)\b\.?\s+(.+?)\s*$/i,
+  );
+  if (!match) return null;
+  const candidate = match[1].trim().replace(/^[-–—:]\s*/, "");
+  return candidate.length > 0 ? candidate : null;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
@@ -88,10 +97,17 @@ export async function POST(request: Request) {
   let missingAssetsCount = 0;
 
   // Cache agencies by name to avoid repeated lookups
-  const agencyCache = new Map<string, { id: string; name: string }>();
+  const agencyCache = new Map<
+    string,
+    { id: string; name: string; displayName: string | null }
+  >();
   const existingAgencies = await db.select().from(gkAgencies);
   for (const a of existingAgencies) {
-    agencyCache.set(a.name.toLowerCase(), { id: a.id, name: a.name });
+    agencyCache.set(a.name.toLowerCase(), {
+      id: a.id,
+      name: a.name,
+      displayName: a.displayName,
+    });
   }
 
   // Process each row: match/create agency, match/create PM
@@ -105,11 +121,19 @@ export async function POST(request: Request) {
     // Match or create agency
     let agency = agencyCache.get(row.agencyName.toLowerCase());
     if (!agency) {
+      const detectedDisplay = extractTradingAsName(row.agencyName);
       const [newAgency] = await db
         .insert(gkAgencies)
-        .values({ name: row.agencyName })
+        .values({
+          name: row.agencyName,
+          displayName: detectedDisplay,
+        })
         .returning();
-      agency = { id: newAgency.id, name: newAgency.name };
+      agency = {
+        id: newAgency.id,
+        name: newAgency.name,
+        displayName: newAgency.displayName,
+      };
       agencyCache.set(row.agencyName.toLowerCase(), agency);
       newAgencyCount++;
     }
@@ -165,7 +189,7 @@ export async function POST(request: Request) {
 
     processedRows.push({
       pmId,
-      agencyName: agency.name,
+      agencyName: agency.displayName ?? agency.name,
       responseTimeMins: row.responseTimeMins,
     });
   }

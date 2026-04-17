@@ -12,9 +12,8 @@ import {
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-export const maxDuration = 300;
+export const maxDuration = 800;
 
-const BATCH_SIZE = 10;
 const DELAY_MS = 2000;
 const EXCLUDED_HOSTS = [
   "realestate.com.au",
@@ -102,92 +101,154 @@ ${listing}`,
 }
 
 export async function POST() {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-    const rows = await db
-      .select({
-        id: gkAgencies.id,
-        name: gkAgencies.name,
-        websiteId: gkAgencyWebsites.id,
-      })
-      .from(gkAgencies)
-      .leftJoin(
-        gkAgencyWebsites,
-        eq(gkAgencyWebsites.agencyId, gkAgencies.id),
-      );
+  const rows = await db
+    .select({
+      id: gkAgencies.id,
+      name: gkAgencies.name,
+      websiteId: gkAgencyWebsites.id,
+    })
+    .from(gkAgencies)
+    .leftJoin(gkAgencyWebsites, eq(gkAgencyWebsites.agencyId, gkAgencies.id));
 
-    const toDiscover: AgencyToDiscover[] = rows
-      .filter((r) => !r.websiteId)
-      .map((r) => ({ id: r.id, name: r.name }));
+  const toDiscover: AgencyToDiscover[] = rows
+    .filter((r) => !r.websiteId)
+    .map((r) => ({ id: r.id, name: r.name }));
 
-    const batch = toDiscover.slice(0, BATCH_SIZE);
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      };
 
-    const firecrawl = getFirecrawl();
-    let found = 0;
-    let missed = 0;
-    const errors: string[] = [];
+      send({ type: "start", total: toDiscover.length });
 
-    for (let i = 0; i < batch.length; i++) {
-      const agency = batch[i];
-      try {
-        const searchData = await firecrawl.search(
-          `"${agency.name}" property management Australia`,
-          { limit: 8 },
-        );
-
-        const webResults: SearchResult[] = [];
-        for (const r of searchData.web ?? []) {
-          if ("url" in r && typeof r.url === "string") {
-            const url = r.url;
-            if (isExcluded(url)) continue;
-            const title =
-              "title" in r && typeof r.title === "string" ? r.title : undefined;
-            const description =
-              "description" in r && typeof r.description === "string"
-                ? r.description
-                : undefined;
-            webResults.push({ url, title, description });
-          }
-        }
-
-        const picked = await pickBestUrl(agency.name, webResults);
-
-        if (picked) {
-          await db.insert(gkAgencyWebsites).values({
-            agencyId: agency.id,
-            websiteUrl: picked,
-            scrapeStatus: "found",
-          });
-          found++;
-        } else {
-          missed++;
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        errors.push(`${agency.name}: ${message}`);
+      if (toDiscover.length === 0) {
+        send({
+          type: "done",
+          total: 0,
+          found: 0,
+          missed: 0,
+          errors: [],
+          summary: "No agencies needing website discovery.",
+        });
+        controller.close();
+        return;
       }
 
-      if (i < batch.length - 1) await sleep(DELAY_MS);
-    }
+      const firecrawl = getFirecrawl();
+      let found = 0;
+      let missed = 0;
+      const errors: string[] = [];
 
-    return NextResponse.json({
-      summary: `Processed ${batch.length} agencies: ${found} websites found, ${missed} without a match${errors.length ? `, ${errors.length} errors` : ""}. ${Math.max(toDiscover.length - batch.length, 0)} remaining.`,
-      found,
-      missed,
-      errors,
-      remaining: Math.max(toDiscover.length - batch.length, 0),
-    });
-  } catch (err) {
-    console.error("[headshot-finder/discover] Error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 },
-    );
-  }
+      for (let i = 0; i < toDiscover.length; i++) {
+        const agency = toDiscover[i];
+        send({
+          type: "progress",
+          current: i + 1,
+          total: toDiscover.length,
+          agency: agency.name,
+        });
+
+        try {
+          const searchData = await firecrawl.search(
+            `"${agency.name}" property management Australia`,
+            { limit: 8 },
+          );
+
+          const webResults: SearchResult[] = [];
+          for (const r of searchData.web ?? []) {
+            if ("url" in r && typeof r.url === "string") {
+              const url = r.url;
+              if (isExcluded(url)) continue;
+              const title =
+                "title" in r && typeof r.title === "string"
+                  ? r.title
+                  : undefined;
+              const description =
+                "description" in r && typeof r.description === "string"
+                  ? r.description
+                  : undefined;
+              webResults.push({ url, title, description });
+            }
+          }
+
+          const picked = await pickBestUrl(agency.name, webResults);
+
+          if (picked) {
+            await db.insert(gkAgencyWebsites).values({
+              agencyId: agency.id,
+              websiteUrl: picked,
+              scrapeStatus: "found",
+            });
+            found++;
+            send({
+              type: "result",
+              agency: agency.name,
+              outcome: "found",
+              url: picked,
+              current: i + 1,
+              total: toDiscover.length,
+              found,
+              missed,
+              errorCount: errors.length,
+            });
+          } else {
+            missed++;
+            send({
+              type: "result",
+              agency: agency.name,
+              outcome: "missed",
+              current: i + 1,
+              total: toDiscover.length,
+              found,
+              missed,
+              errorCount: errors.length,
+            });
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          errors.push(`${agency.name}: ${message}`);
+          send({
+            type: "result",
+            agency: agency.name,
+            outcome: "error",
+            error: message,
+            current: i + 1,
+            total: toDiscover.length,
+            found,
+            missed,
+            errorCount: errors.length,
+          });
+        }
+
+        if (i < toDiscover.length - 1) await sleep(DELAY_MS);
+      }
+
+      send({
+        type: "done",
+        total: toDiscover.length,
+        found,
+        missed,
+        errors,
+        summary: `Processed ${toDiscover.length} agencies: ${found} websites found, ${missed} without a match${errors.length ? `, ${errors.length} errors` : ""}.`,
+      });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

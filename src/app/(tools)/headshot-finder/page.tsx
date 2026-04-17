@@ -88,6 +88,14 @@ export default function HeadshotFinderPage() {
     null | "discover" | "scrape" | "extract"
   >(null);
   const [runMessage, setRunMessage] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{
+    current: number;
+    total: number;
+    agency: string | null;
+    found: number;
+    missed: number;
+    errors: number;
+  } | null>(null);
 
   const fetchData = useCallback(async () => {
     const res = await fetch("/api/headshot-finder/agencies");
@@ -120,21 +128,82 @@ export default function HeadshotFinderPage() {
   async function runAction(action: "discover" | "scrape" | "extract") {
     setRunning(action);
     setRunMessage(null);
+    setProgress(null);
     try {
       const res = await fetch(`/api/headshot-finder/${action}`, {
         method: "POST",
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setRunMessage(data.error ?? "Run failed");
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (res.ok && contentType.includes("application/x-ndjson") && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finalSummary: string | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            let event: Record<string, unknown>;
+            try {
+              event = JSON.parse(trimmed);
+            } catch {
+              continue;
+            }
+            if (event.type === "start") {
+              setProgress({
+                current: 0,
+                total: Number(event.total) || 0,
+                agency: null,
+                found: 0,
+                missed: 0,
+                errors: 0,
+              });
+            } else if (event.type === "progress") {
+              setProgress((prev) => ({
+                current: Number(event.current) || 0,
+                total: Number(event.total) || prev?.total || 0,
+                agency: typeof event.agency === "string" ? event.agency : null,
+                found: prev?.found ?? 0,
+                missed: prev?.missed ?? 0,
+                errors: prev?.errors ?? 0,
+              }));
+            } else if (event.type === "result") {
+              setProgress((prev) => ({
+                current: Number(event.current) || prev?.current || 0,
+                total: Number(event.total) || prev?.total || 0,
+                agency: prev?.agency ?? null,
+                found: Number(event.found) || 0,
+                missed: Number(event.missed) || 0,
+                errors: Number(event.errorCount) || 0,
+              }));
+            } else if (event.type === "done") {
+              finalSummary =
+                typeof event.summary === "string" ? event.summary : null;
+            }
+          }
+        }
+        setRunMessage(finalSummary ?? "Run complete");
       } else {
-        setRunMessage(data.summary ?? "Run complete");
+        const data = await res.json();
+        if (!res.ok) {
+          setRunMessage(data.error ?? "Run failed");
+        } else {
+          setRunMessage(data.summary ?? "Run complete");
+        }
       }
       await fetchData();
     } catch (err) {
       setRunMessage(err instanceof Error ? err.message : "Network error");
     } finally {
       setRunning(null);
+      setProgress(null);
     }
   }
 
@@ -243,7 +312,31 @@ export default function HeadshotFinderPage() {
             Run extraction
           </Button>
         </div>
-        {runMessage && (
+        {running && progress && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-[#292B32]">
+              <span>
+                Processing {progress.current} of {progress.total}
+                {progress.agency ? ` — ${progress.agency}` : ""}
+              </span>
+              <span className="text-[#9A9BA7]">
+                {progress.found} found • {progress.missed} missed
+                {progress.errors > 0 ? ` • ${progress.errors} errors` : ""}
+              </span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full bg-[#EE0B4F] transition-all"
+                style={{
+                  width: progress.total
+                    ? `${Math.min(100, (progress.current / progress.total) * 100)}%`
+                    : "0%",
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {runMessage && !running && (
           <p className="mt-3 text-xs text-[#9A9BA7]">{runMessage}</p>
         )}
       </div>

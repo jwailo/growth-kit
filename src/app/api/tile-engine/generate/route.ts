@@ -24,7 +24,10 @@ export async function POST(request: Request) {
   if (!user)
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const { runId } = await request.json();
+  const { runId, force } = (await request.json()) as {
+    runId: string;
+    force?: boolean;
+  };
 
   // Get run
   const [run] = await db
@@ -34,6 +37,13 @@ export async function POST(request: Request) {
 
   if (!run) {
     return NextResponse.json({ error: "Run not found" }, { status: 404 });
+  }
+
+  if (force) {
+    await db
+      .update(gkTileRecords)
+      .set({ status: "pending" })
+      .where(eq(gkTileRecords.runId, runId));
   }
 
   // Get records

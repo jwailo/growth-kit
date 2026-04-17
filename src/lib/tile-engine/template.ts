@@ -95,6 +95,30 @@ export function generateTileHTML(data: TileData): string {
 
   const confetti = isSq ? confettiSq : confettiIg;
 
+  const rtDecimal = parseFloat(data.responseTime);
+  const numberStyle = `font-size:${numberSize}px;font-weight:700;color:#292B32;line-height:1;letter-spacing:-1px;`;
+  const unitStyle = `font-size:${unitSize}px;font-weight:600;color:#292B32;letter-spacing:-0.5px;`;
+
+  let metricInner: string;
+  if (!Number.isFinite(rtDecimal) || rtDecimal < 1) {
+    metricInner = `<span style="${unitStyle}font-weight:700;">Less than a minute</span>`;
+  } else {
+    let mins = Math.floor(rtDecimal);
+    let secs = Math.round((rtDecimal % 1) * 60);
+    if (secs === 60) {
+      mins += 1;
+      secs = 0;
+    }
+    const minsLabel = mins === 1 ? "Minute" : "Minutes";
+    const secsLabel = secs === 1 ? "Second" : "Seconds";
+    const minsPart = `<span style="${numberStyle}">${mins}</span><span style="${unitStyle}">${minsLabel}</span>`;
+    const secsPart =
+      secs === 0
+        ? ""
+        : `<span style="${numberStyle}">${secs}</span><span style="${unitStyle}">${secsLabel}</span>`;
+    metricInner = `${minsPart}${secsPart}`;
+  }
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -122,9 +146,8 @@ export function generateTileHTML(data: TileData): string {
   <!-- White Card -->
   <div style="background:#FFFFFF;border-radius:20px;text-align:center;position:relative;z-index:1;margin:${hasPhoto ? `-${photoOverlap}px` : `${noPhotoCardMarginTop}px`} ${cardMarginX}px 0;padding:${hasPhoto ? cardPadTop : noPhotoCardPadTop}px 20px ${cardPadBottom}px;">
     ${data.showName ? `<div style="font-size:14px;color:#9A9BA7;font-weight:500;margin-bottom:12px;">${labelText}</div>` : `<div style="font-size:16px;color:#9A9BA7;font-weight:400;margin-bottom:12px;">${labelText}</div>`}
-    <div style="display:flex;align-items:baseline;justify-content:center;gap:10px;">
-      <span style="font-size:${numberSize}px;font-weight:700;color:#292B32;line-height:1;letter-spacing:-1px;">${data.responseTime}</span>
-      <span style="font-size:${unitSize}px;font-weight:600;color:#292B32;letter-spacing:-0.5px;">Minutes</span>
+    <div style="display:flex;align-items:baseline;justify-content:center;gap:10px;white-space:nowrap;">
+      ${metricInner}
     </div>
     <div style="display:flex;justify-content:center;margin-top:-2px;">
       <img src="${data.scribbleBase64}" style="width:${scribbleWidth}px;height:auto;" />

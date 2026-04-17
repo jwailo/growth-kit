@@ -12,6 +12,7 @@ import {
   Play,
   ArrowLeft,
   Mail,
+  RotateCcw,
 } from "lucide-react";
 
 type Run = {
@@ -46,6 +47,7 @@ export default function RunDetailPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [records, setRecords] = useState<Record[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
   async function fetchRun() {
@@ -72,6 +74,23 @@ export default function RunDetailPage() {
       await fetchRun();
     }
     setGenerating(false);
+  }
+
+  async function handleRegenerateAll() {
+    const ok = window.confirm(
+      "Regenerate every tile for this run? Existing tile images will be overwritten.",
+    );
+    if (!ok) return;
+    setRegenerating(true);
+    const res = await fetch("/api/tile-engine/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runId: id, force: true }),
+    });
+    if (res.ok) {
+      await fetchRun();
+    }
+    setRegenerating(false);
   }
 
   async function handleDownloadAll() {
@@ -183,7 +202,7 @@ export default function RunDetailPage() {
           {pendingRecords.length > 0 && (
             <Button
               onClick={handleGenerate}
-              disabled={generating}
+              disabled={generating || regenerating}
               className="bg-[#EE0B4F] hover:bg-[#d40945]"
             >
               {generating ? (
@@ -195,6 +214,25 @@ export default function RunDetailPage() {
                 <>
                   <Play className="size-4" />
                   Generate tiles ({pendingRecords.length})
+                </>
+              )}
+            </Button>
+          )}
+          {generatedRecords.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={handleRegenerateAll}
+              disabled={generating || regenerating}
+            >
+              {regenerating ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Regenerating...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="size-4" />
+                  Regenerate all
                 </>
               )}
             </Button>

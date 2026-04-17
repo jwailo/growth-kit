@@ -168,13 +168,11 @@ export default function HeadshotFinderPage() {
           icon={<ImageIcon className="size-4" />}
           label="Headshots matched"
           value={
-            totals
-              ? totals.pendingReview + totals.applied
-              : "—"
+            totals ? totals.pendingReview + totals.applied : "—"
           }
           sublabel={
             totals
-              ? `${totals.pendingReview} pending • ${totals.applied} applied`
+              ? `${totals.pendingReview} pending • ${totals.applied} applied • ${totals.rejected} rejected`
               : undefined
           }
         />

@@ -84,7 +84,7 @@ export default function HeadshotFinderPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [, setRunning] = useState<
+  const [running, setRunning] = useState<
     null | "discover" | "scrape" | "extract"
   >(null);
   const [runMessage, setRunMessage] = useState<string | null>(null);
@@ -210,14 +210,26 @@ export default function HeadshotFinderPage() {
         <div className="flex flex-wrap gap-3">
           <Button
             onClick={() => runAction("discover")}
-            disabled
+            disabled={!!running}
             className="bg-[#EE0B4F] hover:bg-[#d40945]"
           >
-            <Search className="size-4" />
+            {running === "discover" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Search className="size-4" />
+            )}
             Run discovery
           </Button>
-          <Button onClick={() => runAction("scrape")} disabled variant="outline">
-            <Download className="size-4" />
+          <Button
+            onClick={() => runAction("scrape")}
+            disabled={!!running}
+            variant="outline"
+          >
+            {running === "scrape" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
             Run scrape
           </Button>
           <Button

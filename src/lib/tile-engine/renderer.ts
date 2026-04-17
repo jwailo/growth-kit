@@ -1,19 +1,33 @@
-import puppeteer from "puppeteer";
+import type { Browser } from "puppeteer-core";
 import { generateTileHTML, type TileData } from "./template";
 
-export async function renderTile(
-  data: TileData
-): Promise<Buffer> {
+async function launchBrowser(): Promise<Browser> {
+  if (process.env.VERCEL) {
+    const chromium = (await import("@sparticuz/chromium")).default;
+    const puppeteer = await import("puppeteer-core");
+    return puppeteer.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    });
+  }
+
+  // Dynamic string defeats webpack static tracing so puppeteer (a devDep)
+  // isn't pulled into the Vercel build bundle.
+  const moduleName = "puppeteer";
+  const puppeteer = await import(/* webpackIgnore: true */ moduleName);
+  return puppeteer.default.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  }) as unknown as Browser;
+}
+
+export async function renderTile(data: TileData): Promise<Buffer> {
   const html = generateTileHTML(data);
-  const width = data.variant === "square" ? 1080 : 1080;
-  const height = data.variant === "square" ? 1080 : 1350;
   const displayWidth = 540;
   const displayHeight = data.variant === "square" ? 540 : 675;
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
+  const browser = await launchBrowser();
 
   try {
     const page = await browser.newPage();

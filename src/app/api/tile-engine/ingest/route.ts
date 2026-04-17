@@ -9,6 +9,8 @@ import { createClient } from "@/lib/supabase/server";
 import { eq, and, ilike } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+export const maxDuration = 60;
+
 type MappedRow = {
   firstName: string;
   lastName: string;
@@ -18,7 +20,8 @@ type MappedRow = {
 };
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
+  try {
+    const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -195,15 +198,22 @@ export async function POST(request: Request) {
     `[tile-engine/ingest] Run ${run.id} created: ${validRows.length} PMs processed, ${skipped.length} skipped`
   );
 
-  return NextResponse.json({
-    runId: run.id,
-    skipped: skipped.length > 0 ? skipped : undefined,
-    summary: {
-      totalPms: validRows.length,
-      matchedPms: matchedCount,
-      newPms: newPmCount,
-      newAgencies: newAgencyCount,
-      missingAssets: missingAssetsCount,
-    },
-  });
+    return NextResponse.json({
+      runId: run.id,
+      skipped: skipped.length > 0 ? skipped : undefined,
+      summary: {
+        totalPms: validRows.length,
+        matchedPms: matchedCount,
+        newPms: newPmCount,
+        newAgencies: newAgencyCount,
+        missingAssets: missingAssetsCount,
+      },
+    });
+  } catch (err) {
+    console.error("[tile-engine/ingest] Error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Internal server error" },
+      { status: 500 },
+    );
+  }
 }

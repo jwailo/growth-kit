@@ -13,10 +13,11 @@ import { TILE_VARIANTS } from "@/lib/tile-engine/renderer";
 import { fileToBase64, urlToBase64 } from "@/lib/tile-engine/assets";
 import * as path from "path";
 
-export const maxDuration = 300; // 5 minute timeout for tile generation
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
+  try {
+    const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -164,9 +165,16 @@ export async function POST(request: Request) {
     })
     .where(eq(gkTileRuns.id, runId));
 
-  return NextResponse.json({
-    runId,
-    tilesGenerated,
-    total: records.length,
-  });
+    return NextResponse.json({
+      runId,
+      tilesGenerated,
+      total: records.length,
+    });
+  } catch (err) {
+    console.error("[tile-engine/generate] Error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Internal server error" },
+      { status: 500 },
+    );
+  }
 }

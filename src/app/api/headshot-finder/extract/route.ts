@@ -16,9 +16,8 @@ import { scoreNameMatch } from "@/lib/headshot-finder/matching";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-export const maxDuration = 300;
+export const maxDuration = 800;
 
-const BATCH_SIZE = 5;
 const DELAY_MS = 3000;
 const MAX_HTML_CHARS = 180000;
 
@@ -120,182 +119,257 @@ async function downloadImage(
 }
 
 export async function POST() {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-    const rows = await db
-      .select({
-        id: gkAgencyWebsites.id,
-        agencyId: gkAgencyWebsites.agencyId,
-        agencyName: gkAgencies.name,
-        teamPageUrl: gkAgencyWebsites.teamPageUrl,
-      })
-      .from(gkAgencyWebsites)
-      .innerJoin(gkAgencies, eq(gkAgencies.id, gkAgencyWebsites.agencyId))
-      .where(eq(gkAgencyWebsites.scrapeStatus, "scraped"));
+  const rows = await db
+    .select({
+      id: gkAgencyWebsites.id,
+      agencyId: gkAgencyWebsites.agencyId,
+      agencyName: gkAgencies.name,
+      teamPageUrl: gkAgencyWebsites.teamPageUrl,
+    })
+    .from(gkAgencyWebsites)
+    .innerJoin(gkAgencies, eq(gkAgencies.id, gkAgencyWebsites.agencyId))
+    .where(eq(gkAgencyWebsites.scrapeStatus, "scraped"));
 
-    const candidates: WebsiteRow[] = rows
-      .filter(
-        (r): r is typeof r & { teamPageUrl: string } =>
-          typeof r.teamPageUrl === "string" && r.teamPageUrl.length > 0,
-      )
-      .map((r) => ({
-        id: r.id,
-        agencyId: r.agencyId,
-        agencyName: r.agencyName,
-        teamPageUrl: r.teamPageUrl,
-      }));
+  const candidates: WebsiteRow[] = rows
+    .filter(
+      (r): r is typeof r & { teamPageUrl: string } =>
+        typeof r.teamPageUrl === "string" && r.teamPageUrl.length > 0,
+    )
+    .map((r) => ({
+      id: r.id,
+      agencyId: r.agencyId,
+      agencyName: r.agencyName,
+      teamPageUrl: r.teamPageUrl,
+    }));
 
-    const batch = candidates.slice(0, BATCH_SIZE);
-    const firecrawl = getFirecrawl();
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      };
 
-    let matchesCreated = 0;
-    let duplicatesSkipped = 0;
-    let agenciesProcessed = 0;
-    let agenciesErrored = 0;
-    const errors: string[] = [];
+      send({ type: "start", total: candidates.length });
 
-    for (let i = 0; i < batch.length; i++) {
-      const site = batch[i];
-      try {
-        const scrape = await firecrawl.scrape(site.teamPageUrl, {
-          formats: ["html"],
-          onlyMainContent: false,
+      if (candidates.length === 0) {
+        send({
+          type: "done",
+          total: 0,
+          matchesCreated: 0,
+          duplicatesSkipped: 0,
+          agenciesProcessed: 0,
+          agenciesErrored: 0,
+          errors: [],
+          summary: "No scraped team pages to extract from.",
         });
-        const html = scrape.html ?? scrape.rawHtml ?? "";
-        if (!html) {
-          errors.push(`${site.agencyName}: empty scrape`);
-          agenciesErrored++;
-          continue;
-        }
+        controller.close();
+        return;
+      }
 
-        const people = await extractPeopleFromHtml(site.agencyName, html);
+      const firecrawl = getFirecrawl();
+      let matchesCreated = 0;
+      let duplicatesSkipped = 0;
+      let agenciesProcessed = 0;
+      let agenciesErrored = 0;
+      const errors: string[] = [];
 
-        const pms = await db
-          .select({
-            id: gkPms.id,
-            firstName: gkPms.firstName,
-            lastName: gkPms.lastName,
-            headshotUrl: gkPms.headshotUrl,
-          })
-          .from(gkPms)
-          .where(eq(gkPms.agencyId, site.agencyId));
+      for (let i = 0; i < candidates.length; i++) {
+        const site = candidates[i];
+        send({
+          type: "progress",
+          current: i + 1,
+          total: candidates.length,
+          agency: site.agencyName,
+        });
 
-        const existing = await db
-          .select({
-            pmId: gkHeadshotMatches.pmId,
-            agencyWebsiteId: gkHeadshotMatches.agencyWebsiteId,
-          })
-          .from(gkHeadshotMatches)
-          .where(eq(gkHeadshotMatches.agencyWebsiteId, site.id));
-        const existingPmIds = new Set(existing.map((e) => e.pmId));
-
-        for (const person of people) {
-          if (!isPlausibleImageUrl(person.imageUrl)) continue;
-          const resolvedImage = resolveUrl(site.teamPageUrl, person.imageUrl);
-          if (!resolvedImage) continue;
-
-          let best: {
-            pmId: string;
-            confidence: "exact" | "fuzzy" | "uncertain";
-            score: number;
-          } | null = null;
-          for (const pm of pms) {
-            if (existingPmIds.has(pm.id)) continue;
-            const result = scoreNameMatch(
-              person.name,
-              pm.firstName,
-              pm.lastName,
-            );
-            if (!result) continue;
-            if (!best || result.score > best.score) {
-              best = {
-                pmId: pm.id,
-                confidence: result.confidence,
-                score: result.score,
-              };
-            }
-            if (best.confidence === "exact" && best.score === 1) break;
-          }
-
-          if (!best) continue;
-          if (existingPmIds.has(best.pmId)) {
-            duplicatesSkipped++;
+        let agencyMatches = 0;
+        try {
+          const scrape = await firecrawl.scrape(site.teamPageUrl, {
+            formats: ["html"],
+            onlyMainContent: false,
+          });
+          const html = scrape.html ?? scrape.rawHtml ?? "";
+          if (!html) {
+            errors.push(`${site.agencyName}: empty scrape`);
+            agenciesErrored++;
+            send({
+              type: "result",
+              agency: site.agencyName,
+              outcome: "error",
+              error: "empty scrape",
+              current: i + 1,
+              total: candidates.length,
+              matchesCreated,
+              duplicatesSkipped,
+              agenciesProcessed,
+              agenciesErrored,
+              errorCount: errors.length,
+            });
+            if (i < candidates.length - 1) await sleep(DELAY_MS);
             continue;
           }
 
-          const [inserted] = await db
-            .insert(gkHeadshotMatches)
-            .values({
-              pmId: best.pmId,
-              agencyWebsiteId: site.id,
-              scrapedName: person.name,
-              scrapedImageUrl: resolvedImage,
-              confidence: best.confidence,
-              matchScore: best.score.toString(),
-              status: "pending_review",
-            })
-            .returning({ id: gkHeadshotMatches.id });
+          const people = await extractPeopleFromHtml(site.agencyName, html);
 
-          const image = await downloadImage(resolvedImage);
-          if (image) {
-            const storagePath = `headshots/staging/${inserted.id}.jpg`;
-            const { error: uploadError } = await supabase.storage
-              .from("growth-kit-assets")
-              .upload(storagePath, image.buffer, {
-                contentType: image.contentType,
-                upsert: true,
-              });
-            if (!uploadError) {
-              const {
-                data: { publicUrl },
-              } = supabase.storage
-                .from("growth-kit-assets")
-                .getPublicUrl(storagePath);
-              await db
-                .update(gkHeadshotMatches)
-                .set({ storedImageUrl: publicUrl })
-                .where(eq(gkHeadshotMatches.id, inserted.id));
-            } else {
-              errors.push(
-                `${site.agencyName} — ${person.name}: upload failed: ${uploadError.message}`,
+          const pms = await db
+            .select({
+              id: gkPms.id,
+              firstName: gkPms.firstName,
+              lastName: gkPms.lastName,
+              headshotUrl: gkPms.headshotUrl,
+            })
+            .from(gkPms)
+            .where(eq(gkPms.agencyId, site.agencyId));
+
+          const existing = await db
+            .select({
+              pmId: gkHeadshotMatches.pmId,
+              agencyWebsiteId: gkHeadshotMatches.agencyWebsiteId,
+            })
+            .from(gkHeadshotMatches)
+            .where(eq(gkHeadshotMatches.agencyWebsiteId, site.id));
+          const existingPmIds = new Set(existing.map((e) => e.pmId));
+
+          for (const person of people) {
+            if (!isPlausibleImageUrl(person.imageUrl)) continue;
+            const resolvedImage = resolveUrl(site.teamPageUrl, person.imageUrl);
+            if (!resolvedImage) continue;
+
+            let best: {
+              pmId: string;
+              confidence: "exact" | "fuzzy" | "uncertain";
+              score: number;
+            } | null = null;
+            for (const pm of pms) {
+              if (existingPmIds.has(pm.id)) continue;
+              const result = scoreNameMatch(
+                person.name,
+                pm.firstName,
+                pm.lastName,
               );
+              if (!result) continue;
+              if (!best || result.score > best.score) {
+                best = {
+                  pmId: pm.id,
+                  confidence: result.confidence,
+                  score: result.score,
+                };
+              }
+              if (best.confidence === "exact" && best.score === 1) break;
             }
+
+            if (!best) continue;
+            if (existingPmIds.has(best.pmId)) {
+              duplicatesSkipped++;
+              continue;
+            }
+
+            const [inserted] = await db
+              .insert(gkHeadshotMatches)
+              .values({
+                pmId: best.pmId,
+                agencyWebsiteId: site.id,
+                scrapedName: person.name,
+                scrapedImageUrl: resolvedImage,
+                confidence: best.confidence,
+                matchScore: best.score.toString(),
+                status: "pending_review",
+              })
+              .returning({ id: gkHeadshotMatches.id });
+
+            const image = await downloadImage(resolvedImage);
+            if (image) {
+              const storagePath = `headshots/staging/${inserted.id}.jpg`;
+              const { error: uploadError } = await supabase.storage
+                .from("growth-kit-assets")
+                .upload(storagePath, image.buffer, {
+                  contentType: image.contentType,
+                  upsert: true,
+                });
+              if (!uploadError) {
+                const {
+                  data: { publicUrl },
+                } = supabase.storage
+                  .from("growth-kit-assets")
+                  .getPublicUrl(storagePath);
+                await db
+                  .update(gkHeadshotMatches)
+                  .set({ storedImageUrl: publicUrl })
+                  .where(eq(gkHeadshotMatches.id, inserted.id));
+              } else {
+                errors.push(
+                  `${site.agencyName} — ${person.name}: upload failed: ${uploadError.message}`,
+                );
+              }
+            }
+
+            existingPmIds.add(best.pmId);
+            matchesCreated++;
+            agencyMatches++;
           }
 
-          existingPmIds.add(best.pmId);
-          matchesCreated++;
+          agenciesProcessed++;
+          send({
+            type: "result",
+            agency: site.agencyName,
+            outcome: "processed",
+            agencyMatches,
+            current: i + 1,
+            total: candidates.length,
+            matchesCreated,
+            duplicatesSkipped,
+            agenciesProcessed,
+            agenciesErrored,
+            errorCount: errors.length,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          errors.push(`${site.agencyName}: ${message}`);
+          agenciesErrored++;
+          send({
+            type: "result",
+            agency: site.agencyName,
+            outcome: "error",
+            error: message,
+            current: i + 1,
+            total: candidates.length,
+            matchesCreated,
+            duplicatesSkipped,
+            agenciesProcessed,
+            agenciesErrored,
+            errorCount: errors.length,
+          });
         }
 
-        agenciesProcessed++;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        errors.push(`${site.agencyName}: ${message}`);
-        agenciesErrored++;
+        if (i < candidates.length - 1) await sleep(DELAY_MS);
       }
 
-      if (i < batch.length - 1) await sleep(DELAY_MS);
-    }
+      send({
+        type: "done",
+        total: candidates.length,
+        matchesCreated,
+        duplicatesSkipped,
+        agenciesProcessed,
+        agenciesErrored,
+        errors,
+        summary: `Processed ${agenciesProcessed} agencies: ${matchesCreated} matches created, ${duplicatesSkipped} duplicates skipped, ${agenciesErrored} errored.`,
+      });
+      controller.close();
+    },
+  });
 
-    return NextResponse.json({
-      summary: `Processed ${agenciesProcessed} agencies: ${matchesCreated} matches created, ${duplicatesSkipped} duplicates skipped, ${agenciesErrored} errored. ${Math.max(candidates.length - batch.length, 0)} remaining.`,
-      matchesCreated,
-      duplicatesSkipped,
-      agenciesProcessed,
-      agenciesErrored,
-      errors,
-      remaining: Math.max(candidates.length - batch.length, 0),
-    });
-  } catch (err) {
-    console.error("[headshot-finder/extract] Error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 },
-    );
-  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

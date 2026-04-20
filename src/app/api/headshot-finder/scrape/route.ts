@@ -13,9 +13,8 @@ import { getFranchisePaths } from "@/lib/headshot-finder/franchise-patterns";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-export const maxDuration = 300;
+export const maxDuration = 800;
 
-const BATCH_SIZE = 10;
 const DELAY_MS = 1000;
 const SITE_TIMEOUT_MS = 30000;
 
@@ -180,82 +179,150 @@ async function findTeamPage(row: WebsiteRow): Promise<string | null> {
 }
 
 export async function POST() {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-    const rows = await db
-      .select({
-        id: gkAgencyWebsites.id,
-        agencyId: gkAgencyWebsites.agencyId,
-        agencyName: gkAgencies.name,
-        websiteUrl: gkAgencyWebsites.websiteUrl,
-      })
-      .from(gkAgencyWebsites)
-      .innerJoin(gkAgencies, eq(gkAgencies.id, gkAgencyWebsites.agencyId))
-      .where(eq(gkAgencyWebsites.scrapeStatus, "found"));
+  const rows = await db
+    .select({
+      id: gkAgencyWebsites.id,
+      agencyId: gkAgencyWebsites.agencyId,
+      agencyName: gkAgencies.name,
+      websiteUrl: gkAgencyWebsites.websiteUrl,
+    })
+    .from(gkAgencyWebsites)
+    .innerJoin(gkAgencies, eq(gkAgencies.id, gkAgencyWebsites.agencyId))
+    .where(eq(gkAgencyWebsites.scrapeStatus, "found"));
 
-    const batch = rows.slice(0, BATCH_SIZE);
-    let scraped = 0;
-    let noTeamPage = 0;
-    let errored = 0;
-    const errors: string[] = [];
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      };
 
-    for (let i = 0; i < batch.length; i++) {
-      const site = batch[i];
-      const now = new Date();
-      try {
-        const teamPage = await findTeamPage(site);
-        if (teamPage) {
-          await db
-            .update(gkAgencyWebsites)
-            .set({
-              teamPageUrl: teamPage,
-              scrapeStatus: "scraped",
-              lastScrapedAt: now,
-            })
-            .where(eq(gkAgencyWebsites.id, site.id));
-          scraped++;
-        } else {
-          await db
-            .update(gkAgencyWebsites)
-            .set({
-              scrapeStatus: "no_team_page",
-              lastScrapedAt: now,
-            })
-            .where(eq(gkAgencyWebsites.id, site.id));
-          noTeamPage++;
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        errors.push(`${site.agencyName}: ${message}`);
-        errored++;
-        await db
-          .update(gkAgencyWebsites)
-          .set({ scrapeStatus: "error", lastScrapedAt: now })
-          .where(eq(gkAgencyWebsites.id, site.id));
+      send({ type: "start", total: rows.length });
+
+      if (rows.length === 0) {
+        send({
+          type: "done",
+          total: 0,
+          scraped: 0,
+          noTeamPage: 0,
+          errored: 0,
+          errors: [],
+          summary: "No agencies with status 'found' to scrape.",
+        });
+        controller.close();
+        return;
       }
 
-      if (i < batch.length - 1) await sleep(DELAY_MS);
-    }
+      let scraped = 0;
+      let noTeamPage = 0;
+      let errored = 0;
+      const errors: string[] = [];
 
-    return NextResponse.json({
-      summary: `Processed ${batch.length} sites: ${scraped} team pages found, ${noTeamPage} without a team page, ${errored} errored. ${Math.max(rows.length - batch.length, 0)} remaining.`,
-      scraped,
-      noTeamPage,
-      errored,
-      errors,
-      remaining: Math.max(rows.length - batch.length, 0),
-    });
-  } catch (err) {
-    console.error("[headshot-finder/scrape] Error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 },
-    );
-  }
+      for (let i = 0; i < rows.length; i++) {
+        const site = rows[i];
+        send({
+          type: "progress",
+          current: i + 1,
+          total: rows.length,
+          agency: site.agencyName,
+        });
+
+        const now = new Date();
+        try {
+          const teamPage = await findTeamPage(site);
+          if (teamPage) {
+            await db
+              .update(gkAgencyWebsites)
+              .set({
+                teamPageUrl: teamPage,
+                scrapeStatus: "scraped",
+                lastScrapedAt: now,
+              })
+              .where(eq(gkAgencyWebsites.id, site.id));
+            scraped++;
+            send({
+              type: "result",
+              agency: site.agencyName,
+              outcome: "scraped",
+              teamPageUrl: teamPage,
+              current: i + 1,
+              total: rows.length,
+              scraped,
+              noTeamPage,
+              errored,
+              errorCount: errors.length,
+            });
+          } else {
+            await db
+              .update(gkAgencyWebsites)
+              .set({
+                scrapeStatus: "no_team_page",
+                lastScrapedAt: now,
+              })
+              .where(eq(gkAgencyWebsites.id, site.id));
+            noTeamPage++;
+            send({
+              type: "result",
+              agency: site.agencyName,
+              outcome: "no_team_page",
+              current: i + 1,
+              total: rows.length,
+              scraped,
+              noTeamPage,
+              errored,
+              errorCount: errors.length,
+            });
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          errors.push(`${site.agencyName}: ${message}`);
+          errored++;
+          await db
+            .update(gkAgencyWebsites)
+            .set({ scrapeStatus: "error", lastScrapedAt: now })
+            .where(eq(gkAgencyWebsites.id, site.id));
+          send({
+            type: "result",
+            agency: site.agencyName,
+            outcome: "error",
+            error: message,
+            current: i + 1,
+            total: rows.length,
+            scraped,
+            noTeamPage,
+            errored,
+            errorCount: errors.length,
+          });
+        }
+
+        if (i < rows.length - 1) await sleep(DELAY_MS);
+      }
+
+      send({
+        type: "done",
+        total: rows.length,
+        scraped,
+        noTeamPage,
+        errored,
+        errors,
+        summary: `Processed ${rows.length} sites: ${scraped} team pages found, ${noTeamPage} without a team page, ${errored} errored.`,
+      });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

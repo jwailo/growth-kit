@@ -13,6 +13,8 @@ import {
   ListChecks,
   Loader2,
   Building2,
+  ExternalLink,
+  Target,
 } from "lucide-react";
 
 type Agency = {
@@ -86,13 +88,40 @@ function StatusBadge({ status }: { status: string | null }) {
   );
 }
 
+type Diagnostics = {
+  totals: {
+    extracted: number;
+    matched: number;
+    matchRate: number;
+    sitesExtracted: number;
+  };
+  confidence: { exact: number; fuzzy: number; uncertain: number };
+  misses: Array<{
+    id: string;
+    scrapedName: string;
+    pmCandidates: Array<{ firstName: string; lastName: string }>;
+    agencyName: string;
+    agencyDisplayName: string | null;
+    teamPageUrl: string | null;
+  }>;
+};
+
+type EditField = "websiteUrl" | "teamPageUrl";
+
+type EditState = {
+  agencyId: string;
+  field: EditField;
+};
+
 export default function HeadshotFinderPage() {
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
+  const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<EditState | null>(null);
   const [editingValue, setEditingValue] = useState("");
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [running, setRunning] = useState<
     null | "discover" | "scrape" | "extract"
   >(null);
@@ -107,10 +136,16 @@ export default function HeadshotFinderPage() {
   } | null>(null);
 
   const fetchData = useCallback(async () => {
-    const res = await fetch("/api/headshot-finder/agencies");
-    const data = await res.json();
-    setAgencies(data.agencies ?? []);
-    setTotals(data.totals ?? null);
+    const [agencyRes, diagRes] = await Promise.all([
+      fetch("/api/headshot-finder/agencies"),
+      fetch("/api/headshot-finder/diagnostics"),
+    ]);
+    const agencyData = await agencyRes.json();
+    setAgencies(agencyData.agencies ?? []);
+    setTotals(agencyData.totals ?? null);
+    if (diagRes.ok) {
+      setDiagnostics((await diagRes.json()) as Diagnostics);
+    }
     setLoading(false);
   }, []);
 
@@ -118,19 +153,42 @@ export default function HeadshotFinderPage() {
     fetchData();
   }, [fetchData]);
 
-  async function saveWebsite(agencyId: string, value: string) {
-    setSavingId(agencyId);
+  const startEditing = (agencyId: string, field: EditField, value: string) => {
+    setEditing({ agencyId, field });
+    setEditingValue(value);
+    setEditError(null);
+  };
+
+  const cancelEditing = () => {
+    setEditing(null);
+    setEditingValue("");
+    setEditError(null);
+  };
+
+  async function saveEdit(agencyId: string, field: EditField, value: string) {
+    const key = `${agencyId}:${field}`;
+    setSavingKey(key);
+    setEditError(null);
     try {
-      await fetch(`/api/headshot-finder/agencies/${agencyId}`, {
+      const body: Record<string, string> = {};
+      body[field] = value;
+      const res = await fetch(`/api/headshot-finder/agencies/${agencyId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ websiteUrl: value }),
+        body: JSON.stringify(body),
       });
-      await fetchData();
-    } finally {
-      setSavingId(null);
-      setEditingId(null);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setEditError(data.error ?? "Failed to save");
+        return;
+      }
+      setEditing(null);
       setEditingValue("");
+      await fetchData();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setSavingKey(null);
     }
   }
 
@@ -364,6 +422,8 @@ export default function HeadshotFinderPage() {
         )}
       </div>
 
+      {diagnostics && <DiagnosticsSection diagnostics={diagnostics} />}
+
       <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <h2 className="text-sm font-semibold text-[#292B32]">Agencies</h2>
@@ -407,54 +467,58 @@ export default function HeadshotFinderPage() {
                     {a.displayName || a.name}
                   </td>
                   <td className="px-5 py-3 text-[#292B32]">
-                    {editingId === a.id ? (
-                      <input
-                        autoFocus
-                        type="text"
-                        value={editingValue}
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        onBlur={() => saveWebsite(a.id, editingValue)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter")
-                            saveWebsite(a.id, editingValue);
-                          if (e.key === "Escape") {
-                            setEditingId(null);
-                            setEditingValue("");
-                          }
-                        }}
-                        disabled={savingId === a.id}
-                        placeholder="https://example.com"
-                        className="w-full rounded-md border border-gray-200 px-2 py-1 text-sm outline-none focus:border-[#EE0B4F]"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setEditingId(a.id);
-                          setEditingValue(a.websiteUrl ?? "");
-                        }}
-                        className={`text-left ${
-                          a.websiteUrl
-                            ? "text-[#EE0B4F] hover:underline"
-                            : "text-[#9A9BA7] hover:text-[#292B32]"
-                        }`}
-                      >
-                        {a.websiteUrl || "— add website —"}
-                      </button>
-                    )}
+                    <EditableUrlCell
+                      isEditing={
+                        editing?.agencyId === a.id &&
+                        editing.field === "websiteUrl"
+                      }
+                      isSaving={savingKey === `${a.id}:websiteUrl`}
+                      value={editingValue}
+                      onValueChange={setEditingValue}
+                      onStart={() =>
+                        startEditing(a.id, "websiteUrl", a.websiteUrl ?? "")
+                      }
+                      onCancel={cancelEditing}
+                      onSave={() => saveEdit(a.id, "websiteUrl", editingValue)}
+                      currentUrl={a.websiteUrl}
+                      addLabel="— add website —"
+                      error={
+                        editing?.agencyId === a.id &&
+                        editing.field === "websiteUrl"
+                          ? editError
+                          : null
+                      }
+                    />
                   </td>
-                  <td className="px-5 py-3 text-xs text-[#9A9BA7]">
-                    {a.teamPageUrl ? (
-                      <a
-                        href={a.teamPageUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="truncate text-[#EE0B4F] hover:underline"
-                      >
-                        {a.teamPageUrl.replace(/^https?:\/\//, "")}
-                      </a>
-                    ) : (
-                      "—"
-                    )}
+                  <td className="px-5 py-3">
+                    <EditableUrlCell
+                      isEditing={
+                        editing?.agencyId === a.id &&
+                        editing.field === "teamPageUrl"
+                      }
+                      isSaving={savingKey === `${a.id}:teamPageUrl`}
+                      value={editingValue}
+                      onValueChange={setEditingValue}
+                      onStart={() =>
+                        startEditing(a.id, "teamPageUrl", a.teamPageUrl ?? "")
+                      }
+                      onCancel={cancelEditing}
+                      onSave={() =>
+                        saveEdit(a.id, "teamPageUrl", editingValue)
+                      }
+                      currentUrl={a.teamPageUrl}
+                      addLabel={
+                        a.websiteUrl ? "— add team page —" : "— website first —"
+                      }
+                      disabled={!a.websiteUrl}
+                      compact
+                      error={
+                        editing?.agencyId === a.id &&
+                        editing.field === "teamPageUrl"
+                          ? editError
+                          : null
+                      }
+                    />
                   </td>
                   <td className="px-5 py-3">
                     <StatusBadge status={a.scrapeStatus} />
@@ -503,6 +567,191 @@ function SummaryCard({
       {sublabel && (
         <p className="mt-1 text-xs text-[#9A9BA7]">{sublabel}</p>
       )}
+    </div>
+  );
+}
+
+function EditableUrlCell({
+  isEditing,
+  isSaving,
+  value,
+  onValueChange,
+  onStart,
+  onCancel,
+  onSave,
+  currentUrl,
+  addLabel,
+  disabled,
+  compact,
+  error,
+}: {
+  isEditing: boolean;
+  isSaving: boolean;
+  value: string;
+  onValueChange: (v: string) => void;
+  onStart: () => void;
+  onCancel: () => void;
+  onSave: () => void;
+  currentUrl: string | null;
+  addLabel: string;
+  disabled?: boolean;
+  compact?: boolean;
+  error?: string | null;
+}) {
+  if (isEditing) {
+    return (
+      <div className="flex flex-col gap-1">
+        <input
+          autoFocus
+          type="text"
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          onBlur={onSave}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onSave();
+            if (e.key === "Escape") onCancel();
+          }}
+          disabled={isSaving}
+          placeholder="https://example.com"
+          className="w-full rounded-md border border-gray-200 px-2 py-1 text-sm outline-none focus:border-[#EE0B4F]"
+        />
+        {error && <p className="text-xs text-red-500">{error}</p>}
+      </div>
+    );
+  }
+
+  const textClass = compact ? "text-xs" : "text-sm";
+
+  if (!currentUrl) {
+    return (
+      <button
+        onClick={onStart}
+        disabled={disabled}
+        className={`text-left ${textClass} ${
+          disabled
+            ? "cursor-not-allowed text-gray-300"
+            : "text-[#9A9BA7] hover:text-[#292B32]"
+        }`}
+      >
+        {addLabel}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={onStart}
+        title="Click to edit"
+        className={`max-w-[220px] truncate text-left ${textClass} text-[#EE0B4F] hover:underline`}
+      >
+        {currentUrl.replace(/^https?:\/\//, "")}
+      </button>
+      <a
+        href={currentUrl}
+        target="_blank"
+        rel="noreferrer"
+        title="Open in new tab"
+        onClick={(e) => e.stopPropagation()}
+        className="shrink-0 text-[#9A9BA7] hover:text-[#292B32]"
+      >
+        <ExternalLink className="size-3.5" />
+      </a>
+    </div>
+  );
+}
+
+function DiagnosticsSection({ diagnostics }: { diagnostics: Diagnostics }) {
+  const { totals, confidence, misses } = diagnostics;
+  const ratePct = (totals.matchRate * 100).toFixed(1);
+
+  return (
+    <div className="space-y-4 rounded-xl border border-gray-100 bg-white p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Target className="size-4 text-[#EE0B4F]" />
+          <h2 className="text-sm font-semibold text-[#292B32]">
+            Matching diagnostics
+          </h2>
+        </div>
+        <p className="text-xs text-[#9A9BA7]">
+          Across {totals.sitesExtracted} extracted team page
+          {totals.sitesExtracted === 1 ? "" : "s"}
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="People extracted" value={totals.extracted} />
+        <Stat label="Total matched" value={totals.matched} />
+        <Stat label="Match rate" value={`${ratePct}%`} />
+        <Stat
+          label="By confidence"
+          value={`${confidence.exact} / ${confidence.fuzzy} / ${confidence.uncertain}`}
+          sublabel="exact / fuzzy / uncertain"
+        />
+      </div>
+      {misses.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-medium text-[#9A9BA7]">
+            Recent unmatched extractions
+          </p>
+          <div className="max-h-80 overflow-y-auto rounded-md border border-gray-100">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50/80 text-[#9A9BA7]">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">Agency</th>
+                  <th className="px-3 py-2 text-left font-medium">
+                    Scraped name
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium">
+                    PM candidates in gk_pms
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {misses.map((miss) => (
+                  <tr key={miss.id} className="border-t border-gray-100">
+                    <td className="px-3 py-2 align-top text-[#292B32]">
+                      {miss.agencyDisplayName || miss.agencyName}
+                    </td>
+                    <td className="px-3 py-2 align-top text-[#292B32]">
+                      {miss.scrapedName}
+                    </td>
+                    <td className="px-3 py-2 align-top text-[#9A9BA7]">
+                      {miss.pmCandidates.length === 0
+                        ? "(no PMs in this agency)"
+                        : miss.pmCandidates
+                            .slice(0, 6)
+                            .map((c) => `${c.firstName} ${c.lastName}`)
+                            .join(", ") +
+                          (miss.pmCandidates.length > 6
+                            ? ` +${miss.pmCandidates.length - 6} more`
+                            : "")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  sublabel,
+}: {
+  label: string;
+  value: string | number;
+  sublabel?: string;
+}) {
+  return (
+    <div className="rounded-lg bg-[#F7F7F7] p-3">
+      <p className="text-xs text-[#9A9BA7]">{label}</p>
+      <p className="mt-1 text-lg font-bold text-[#292B32]">{value}</p>
+      {sublabel && <p className="text-[11px] text-[#9A9BA7]">{sublabel}</p>}
     </div>
   );
 }

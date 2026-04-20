@@ -78,15 +78,26 @@ export async function PATCH(
       return NextResponse.json(created);
     }
 
-    if ("teamPageUrl" in body && existing) {
+    if ("teamPageUrl" in body) {
+      if (!existing) {
+        return NextResponse.json(
+          { error: "Add a website URL before setting a team page URL" },
+          { status: 400 },
+        );
+      }
       const raw = body.teamPageUrl;
       const normalised =
         raw === null || raw === undefined || raw === ""
           ? null
           : normaliseUrl(raw);
+      const nextStatus = normalised
+        ? "scraped"
+        : existing.scrapeStatus === "scraped"
+          ? "found"
+          : existing.scrapeStatus;
       const [updated] = await db
         .update(gkAgencyWebsites)
-        .set({ teamPageUrl: normalised })
+        .set({ teamPageUrl: normalised, scrapeStatus: nextStatus })
         .where(eq(gkAgencyWebsites.id, existing.id))
         .returning();
       return NextResponse.json(updated);

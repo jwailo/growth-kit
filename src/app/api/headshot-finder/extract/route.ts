@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { gkAgencies, gkPms } from "@/db/schema/tile-engine";
 import {
   gkAgencyWebsites,
+  gkExtractionMisses,
   gkHeadshotMatches,
 } from "@/db/schema/headshot-finder";
 import { createClient } from "@/lib/supabase/server";
@@ -237,8 +238,24 @@ export async function POST() {
             .where(eq(gkHeadshotMatches.agencyWebsiteId, site.id));
           const existingPmIds = new Set(existing.map((e) => e.pmId));
 
-          for (const person of people) {
-            if (!isPlausibleImageUrl(person.imageUrl)) continue;
+          // Reset miss log for this website so we only keep the latest run's
+          // samples (otherwise old diagnostics pile up).
+          await db
+            .delete(gkExtractionMisses)
+            .where(eq(gkExtractionMisses.agencyWebsiteId, site.id));
+
+          const MAX_MISS_SAMPLES = 5;
+          let missSamplesStored = 0;
+
+          let agencyExtracted = 0;
+          const validPeople = people.filter(
+            (p) =>
+              isPlausibleImageUrl(p.imageUrl) &&
+              !!resolveUrl(site.teamPageUrl, p.imageUrl),
+          );
+          agencyExtracted = validPeople.length;
+
+          for (const person of validPeople) {
             const resolvedImage = resolveUrl(site.teamPageUrl, person.imageUrl);
             if (!resolvedImage) continue;
 
@@ -265,7 +282,20 @@ export async function POST() {
               if (best.confidence === "exact" && best.score === 1) break;
             }
 
-            if (!best) continue;
+            if (!best) {
+              if (missSamplesStored < MAX_MISS_SAMPLES) {
+                await db.insert(gkExtractionMisses).values({
+                  agencyWebsiteId: site.id,
+                  scrapedName: person.name,
+                  pmCandidates: pms.map((pm) => ({
+                    firstName: pm.firstName,
+                    lastName: pm.lastName,
+                  })),
+                });
+                missSamplesStored++;
+              }
+              continue;
+            }
             if (existingPmIds.has(best.pmId)) {
               duplicatesSkipped++;
               continue;
@@ -315,12 +345,21 @@ export async function POST() {
             agencyMatches++;
           }
 
+          await db
+            .update(gkAgencyWebsites)
+            .set({
+              extractedCount: agencyExtracted,
+              matchedCount: agencyMatches,
+            })
+            .where(eq(gkAgencyWebsites.id, site.id));
+
           agenciesProcessed++;
           send({
             type: "result",
             agency: site.agencyName,
             outcome: "processed",
             agencyMatches,
+            agencyExtracted,
             current: i + 1,
             total: candidates.length,
             matchesCreated,

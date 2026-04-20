@@ -1,4 +1,12 @@
-import { pgTable, uuid, text, timestamp, numeric } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  numeric,
+  integer,
+  jsonb,
+} from "drizzle-orm/pg-core";
 import { gkAgencies, gkPms } from "./tile-engine";
 
 export const gkAgencyWebsites = pgTable("gk_agency_websites", {
@@ -10,6 +18,18 @@ export const gkAgencyWebsites = pgTable("gk_agency_websites", {
   teamPageUrl: text("team_page_url"),
   scrapeStatus: text("scrape_status").notNull().default("pending"),
   lastScrapedAt: timestamp("last_scraped_at"),
+  extractedCount: integer("extracted_count").notNull().default(0),
+  matchedCount: integer("matched_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const gkExtractionMisses = pgTable("gk_extraction_misses", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  agencyWebsiteId: uuid("agency_website_id")
+    .references(() => gkAgencyWebsites.id)
+    .notNull(),
+  scrapedName: text("scraped_name").notNull(),
+  pmCandidates: jsonb("pm_candidates").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

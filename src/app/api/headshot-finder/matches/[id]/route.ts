@@ -8,6 +8,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   try {
     const supabase = await createClient();
     const {
@@ -16,20 +17,43 @@ export async function PATCH(
     if (!user)
       return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-    const { id } = await params;
     const body = (await request.json()) as { action?: string };
 
     if (body.action === "approve") {
       const result = await approveMatch(supabase, id);
-      if (!result.ok)
-        return NextResponse.json({ error: result.error }, { status: 400 });
+      if (!result.ok) {
+        console.error(
+          `[headshot-finder/matches/${id} PATCH approve] FAILED step="${result.step}" error="${result.error}"`,
+          result.details ?? "",
+        );
+        return NextResponse.json(
+          {
+            error: result.error,
+            step: result.step,
+            details: result.details ?? null,
+          },
+          { status: 400 },
+        );
+      }
       return NextResponse.json(result);
     }
 
     if (body.action === "reject") {
       const result = await rejectMatch(supabase, id);
-      if (!result.ok)
-        return NextResponse.json({ error: result.error }, { status: 400 });
+      if (!result.ok) {
+        console.error(
+          `[headshot-finder/matches/${id} PATCH reject] FAILED step="${result.step}" error="${result.error}"`,
+          result.details ?? "",
+        );
+        return NextResponse.json(
+          {
+            error: result.error,
+            step: result.step,
+            details: result.details ?? null,
+          },
+          { status: 400 },
+        );
+      }
       return NextResponse.json(result);
     }
 
@@ -38,9 +62,15 @@ export async function PATCH(
       { status: 400 },
     );
   } catch (err) {
-    console.error("[headshot-finder/matches/[id] PATCH] Error:", err);
+    console.error(
+      `[headshot-finder/matches/${id} PATCH] Uncaught error:`,
+      err,
+    );
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      {
+        error: err instanceof Error ? err.message : "Internal server error",
+        step: "uncaught",
+      },
       { status: 500 },
     );
   }

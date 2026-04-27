@@ -58,6 +58,11 @@ export default function ReviewPage() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
+  const [actError, setActError] = useState<{
+    matchId: string;
+    message: string;
+    step?: string;
+  } | null>(null);
   const [bulkRunning, setBulkRunning] = useState<null | "exact" | "all">(null);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>({
@@ -100,6 +105,7 @@ export default function ReviewPage() {
 
   async function actOn(matchId: string, action: "approve" | "reject") {
     setActing(matchId);
+    setActError(null);
     try {
       const res = await fetch(`/api/headshot-finder/matches/${matchId}`, {
         method: "PATCH",
@@ -108,7 +114,18 @@ export default function ReviewPage() {
       });
       if (res.ok) {
         setMatches((prev) => prev.filter((m) => m.id !== matchId));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        const message = data?.error ?? `Request failed (${res.status})`;
+        console.error(
+          `[review] ${action} failed for ${matchId}`,
+          data,
+        );
+        setActError({ matchId, message, step: data?.step });
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Network error";
+      setActError({ matchId, message });
     } finally {
       setActing(null);
     }
@@ -193,6 +210,27 @@ export default function ReviewPage() {
       {bulkMessage && (
         <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 text-sm text-[#292B32]">
           {bulkMessage}
+        </div>
+      )}
+
+      {actError && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div className="flex-1">
+            <p className="font-medium">
+              {actError.step
+                ? `Approve failed at "${actError.step}"`
+                : "Approve failed"}
+            </p>
+            <p className="mt-0.5 text-xs">{actError.message}</p>
+          </div>
+          <button
+            onClick={() => setActError(null)}
+            className="text-red-700 hover:text-red-900"
+            aria-label="Dismiss"
+          >
+            <X className="size-4" />
+          </button>
         </div>
       )}
 

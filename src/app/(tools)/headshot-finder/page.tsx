@@ -204,11 +204,15 @@ export default function HeadshotFinderPage() {
   } | null>(null);
 
   const fetchData = useCallback(async () => {
+    console.log("[hf] fetchData: requesting /api/headshot-finder/agencies");
     const [agencyRes, diagRes] = await Promise.all([
       fetch("/api/headshot-finder/agencies"),
       fetch("/api/headshot-finder/diagnostics"),
     ]);
     const agencyData = await agencyRes.json();
+    console.log(
+      `[hf] fetchData: received ${agencyData.agencies?.length ?? 0} agencies`,
+    );
     setAgencies(agencyData.agencies ?? []);
     setTotals(agencyData.totals ?? null);
     if (diagRes.ok) {
@@ -220,6 +224,17 @@ export default function HeadshotFinderPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // GTM-209 telemetry: confirm client hydration + state propagation on Vercel.
+  useEffect(() => {
+    console.log("[hf] mounted (client component is hydrated)");
+  }, []);
+
+  useEffect(() => {
+    console.log(
+      `[hf] state activeFilter=${activeFilter} searchQuery="${searchQuery}" agencies=${agencies.length}`,
+    );
+  }, [activeFilter, searchQuery, agencies.length]);
 
   const filterCounts = useMemo(() => {
     const counts: Record<FilterTab, number> = {
@@ -238,7 +253,7 @@ export default function HeadshotFinderPage() {
 
   const visibleAgencies = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return agencies.filter((a) => {
+    const filtered = agencies.filter((a) => {
       if (activeFilter !== "all" && categoryFor(a) !== activeFilter) {
         return false;
       }
@@ -248,6 +263,10 @@ export default function HeadshotFinderPage() {
       }
       return true;
     });
+    console.log(
+      `[hf] visibleAgencies recomputed: ${filtered.length} of ${agencies.length} (filter=${activeFilter}, q="${q}")`,
+    );
+    return filtered;
   }, [agencies, activeFilter, searchQuery]);
 
   const startEditing = (agencyId: string, field: EditField, value: string) => {
@@ -609,7 +628,10 @@ export default function HeadshotFinderPage() {
                 <button
                   type="button"
                   key={tab.key}
-                  onClick={() => setActiveFilter(tab.key)}
+                  onClick={() => {
+                    console.log(`[hf] tab clicked: ${tab.key}`);
+                    setActiveFilter(tab.key);
+                  }}
                   aria-pressed={active}
                   className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                     active
@@ -627,7 +649,10 @@ export default function HeadshotFinderPage() {
             <input
               type="search"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                console.log(`[hf] search input: "${e.target.value}"`);
+                setSearchQuery(e.target.value);
+              }}
               placeholder="Search agencies"
               className="w-56 rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-sm outline-none focus:border-[#EE0B4F]"
             />

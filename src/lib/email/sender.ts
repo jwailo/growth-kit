@@ -79,7 +79,7 @@ export async function sendTileEmail(
       agencyName: input.agencyName,
       responseTimeMins: input.responseTimeMins,
       period: input.period,
-      tileCid,
+      tileImageSrc: `cid:${tileCid}`,
       downloadLinks,
     });
     const text = buildEmailText({

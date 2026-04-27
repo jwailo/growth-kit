@@ -67,7 +67,7 @@ export function buildEmailHtml(input: {
   agencyName: string;
   responseTimeMins: number;
   period: string;
-  tileCid: string;
+  tileImageSrc: string;
   downloadLinks: DownloadLink[];
 }): string {
   const {
@@ -75,7 +75,7 @@ export function buildEmailHtml(input: {
     agencyName,
     responseTimeMins,
     period,
-    tileCid,
+    tileImageSrc,
     downloadLinks,
   } = input;
 
@@ -123,7 +123,7 @@ export function buildEmailHtml(input: {
           </tr>
           <tr>
             <td align="center" style="padding:0 40px 24px 40px;">
-              <img src="cid:${tileCid}" alt="Response Time Champion tile for ${firstName}" width="480" style="display:block;max-width:100%;height:auto;border-radius:12px;" />
+              <img src="${tileImageSrc}" alt="Response Time Champion tile for ${firstName}" width="480" style="display:block;max-width:100%;height:auto;border-radius:12px;" />
             </td>
           </tr>
           ${downloadLinksHtml}

@@ -19,6 +19,7 @@ import {
   AlertCircle,
   MailX,
   X,
+  Eye,
 } from "lucide-react";
 
 type Run = {
@@ -91,6 +92,10 @@ export default function DeliveryPage() {
   } | null>(null);
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [origin, setOrigin] = useState("");
+  const [previewModes, setPreviewModes] = useState<
+    Record<string, "html" | "text">
+  >({});
+  const [modalRecordId, setModalRecordId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") setOrigin(window.location.origin);
@@ -462,7 +467,12 @@ export default function DeliveryPage() {
               }`}
             >
               <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalRecordId(rec.id)}
+                  className="-m-1 flex items-center gap-3 rounded-lg p-1 text-left transition-colors hover:bg-black/5"
+                  title="Open full email preview"
+                >
                   {rec.tileUrlSquare && (
                     <img
                       src={rec.tileUrlSquare}
@@ -488,8 +498,16 @@ export default function DeliveryPage() {
                       )}
                     </p>
                   </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setModalRecordId(rec.id)}
+                  >
+                    <Eye className="size-3" />
+                    Preview
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -585,33 +603,81 @@ export default function DeliveryPage() {
               </div>
 
               {/* Email body */}
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <label className="text-xs font-medium text-[#9A9BA7]">
-                    Email body
-                  </label>
-                  <button
-                    onClick={() => copyToClipboard(emailCopy, `body-${rec.id}`)}
-                    className="flex items-center gap-1 text-xs text-[#EE0B4F] hover:underline"
-                  >
-                    {copiedId === `body-${rec.id}` ? (
-                      <>
-                        <Check className="size-3" /> Copied
-                      </>
+              {(() => {
+                const mode = previewModes[rec.id] ?? "html";
+                const setMode = (m: "html" | "text") =>
+                  setPreviewModes((prev) => ({ ...prev, [rec.id]: m }));
+                return (
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setMode("html")}
+                          className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                            mode === "html"
+                              ? "bg-white text-[#292B32] shadow-sm"
+                              : "text-[#9A9BA7] hover:text-[#292B32]"
+                          }`}
+                        >
+                          Preview
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMode("text")}
+                          className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                            mode === "text"
+                              ? "bg-white text-[#292B32] shadow-sm"
+                              : "text-[#9A9BA7] hover:text-[#292B32]"
+                          }`}
+                        >
+                          Plain text
+                        </button>
+                      </div>
+                      {mode === "text" && (
+                        <button
+                          onClick={() =>
+                            copyToClipboard(emailCopy, `body-${rec.id}`)
+                          }
+                          className="flex items-center gap-1 text-xs text-[#EE0B4F] hover:underline"
+                        >
+                          {copiedId === `body-${rec.id}` ? (
+                            <>
+                              <Check className="size-3" /> Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="size-3" /> Copy
+                            </>
+                          )}
+                        </button>
+                      )}
+                      {mode === "html" && (
+                        <button
+                          onClick={() => setModalRecordId(rec.id)}
+                          className="flex items-center gap-1 text-xs text-[#EE0B4F] hover:underline"
+                        >
+                          <Eye className="size-3" /> Open full preview
+                        </button>
+                      )}
+                    </div>
+                    {mode === "text" ? (
+                      <textarea
+                        readOnly
+                        value={emailCopy}
+                        className="w-full resize-none rounded-lg bg-gray-50 px-3 py-2 text-sm text-[#292B32] outline-none"
+                        rows={12}
+                      />
                     ) : (
-                      <>
-                        <Copy className="size-3" /> Copy
-                      </>
+                      <iframe
+                        title={`Email preview for ${rec.pmFirstName} ${rec.pmLastName}`}
+                        src={`/api/tile-engine/preview-email/${rec.id}`}
+                        className="h-[480px] w-full rounded-lg border border-gray-100 bg-white"
+                      />
                     )}
-                  </button>
-                </div>
-                <textarea
-                  readOnly
-                  value={emailCopy}
-                  className="w-full resize-none rounded-lg bg-gray-50 px-3 py-2 text-sm text-[#292B32] outline-none"
-                  rows={12}
-                />
-              </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
@@ -624,6 +690,48 @@ export default function DeliveryPage() {
           </p>
         </div>
       )}
+
+      {/* Full email preview modal */}
+      {modalRecordId &&
+        (() => {
+          const rec = generatedRecords.find((r) => r.id === modalRecordId);
+          if (!rec) return null;
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+              onClick={() => setModalRecordId(null)}
+            >
+              <div
+                className="flex h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[#1C1E26]">
+                      Email preview
+                    </p>
+                    <p className="text-xs text-[#9A9BA7]">
+                      {rec.pmFirstName} {rec.pmLastName}
+                      {rec.pmEmail ? <> &middot; {rec.pmEmail}</> : null}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setModalRecordId(null)}
+                    className="rounded-md p-1 text-[#9A9BA7] hover:bg-gray-100 hover:text-[#292B32]"
+                    aria-label="Close preview"
+                  >
+                    <X className="size-5" />
+                  </button>
+                </div>
+                <iframe
+                  title={`Full email preview for ${rec.pmFirstName} ${rec.pmLastName}`}
+                  src={`/api/tile-engine/preview-email/${rec.id}`}
+                  className="flex-1 w-full bg-[#F7F7F7]"
+                />
+              </div>
+            </div>
+          );
+        })()}
 
       {/* Batch confirm modal */}
       {showBatchConfirm && (

@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     const rows = await db
       .select({
         recordId: gkTileRecords.id,
+        pmId: gkTileRecords.pmId,
         responseTimeMins: gkTileRecords.responseTimeMins,
         agencyName: sql<string>`coalesce(${gkAgencies.displayName}, ${gkAgencies.name}, ${gkTileRecords.agencyName})`,
         tileUrlSquare: gkTileRecords.tileUrlSquare,
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
         period: gkTileRuns.period,
         pmFirstName: gkPms.firstName,
         pmEmail: gkPms.email,
+        pmOptedOut: gkPms.optedOut,
       })
       .from(gkTileRecords)
       .innerJoin(gkTileRuns, eq(gkTileRecords.runId, gkTileRuns.id))
@@ -69,6 +71,8 @@ export async function POST(request: Request) {
 
     let sent = 0;
     let skipped = 0;
+    let skippedNoEmail = 0;
+    let skippedOptedOut = 0;
     let failed = 0;
     const failures: Array<{ recordId: string; error: string }> = [];
 
@@ -77,6 +81,13 @@ export async function POST(request: Request) {
 
       if (!row.pmEmail) {
         skipped++;
+        skippedNoEmail++;
+        continue;
+      }
+
+      if (row.pmOptedOut) {
+        skipped++;
+        skippedOptedOut++;
         continue;
       }
 
@@ -87,6 +98,7 @@ export async function POST(request: Request) {
       }
 
       const downloadAllUrl = `${baseUrl}/api/tile-engine/records/${row.recordId}/download-all`;
+      const unsubscribeUrl = `${baseUrl}/unsubscribe/${row.pmId}`;
 
       const result = await sendTileEmail({
         to: row.pmEmail,
@@ -99,6 +111,7 @@ export async function POST(request: Request) {
         tileUrlIg: row.tileUrlIg,
         tileUrlIgNamed: row.tileUrlIgNamed,
         downloadAllUrl,
+        unsubscribeUrl,
       });
 
       if (result.ok) {
@@ -125,6 +138,8 @@ export async function POST(request: Request) {
       total: rows.length,
       sent,
       skipped,
+      skippedNoEmail,
+      skippedOptedOut,
       failed,
       failures,
     });

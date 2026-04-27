@@ -19,6 +19,7 @@ export type SendTileEmailInput = {
   tileUrlIg?: string | null;
   tileUrlIgNamed?: string | null;
   downloadAllUrl?: string | null;
+  unsubscribeUrl: string;
 };
 
 export type SendTileEmailResult = {
@@ -81,6 +82,7 @@ export async function sendTileEmail(
       period: input.period,
       tileImageSrc: `cid:${tileCid}`,
       downloadLinks,
+      unsubscribeUrl: input.unsubscribeUrl,
     });
     const text = buildEmailText({
       firstName: input.firstName,
@@ -88,6 +90,7 @@ export async function sendTileEmail(
       responseTimeMins: input.responseTimeMins,
       period: input.period,
       downloadLinks,
+      unsubscribeUrl: input.unsubscribeUrl,
     });
 
     const fromUser = process.env.GMAIL_USER!;
@@ -97,6 +100,10 @@ export async function sendTileEmail(
       subject: getSubjectLine(input.period),
       text,
       html,
+      headers: {
+        "List-Unsubscribe": `<${input.unsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
       attachments: [
         {
           filename: `response-time-${input.firstName.toLowerCase()}.png`,

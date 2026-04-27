@@ -44,6 +44,7 @@ type TileRecord = {
   pmFirstName: string;
   pmLastName: string;
   pmEmail: string | null;
+  pmOptedOut: boolean;
 };
 
 type SendState =
@@ -60,6 +61,9 @@ function buildPreviewCopy(
   const downloadAllUrl = origin
     ? `${origin}/api/tile-engine/records/${rec.id}/download-all`
     : null;
+  const unsubscribeUrl = origin
+    ? `${origin}/unsubscribe/${rec.pmId}`
+    : `/unsubscribe/${rec.pmId}`;
   const downloadLinks = buildDownloadLinks({
     tileUrlSquareNamed: rec.tileUrlSquareNamed,
     tileUrlIg: rec.tileUrlIg,
@@ -72,6 +76,7 @@ function buildPreviewCopy(
     responseTimeMins: parseFloat(rec.responseTimeMins),
     period,
     downloadLinks,
+    unsubscribeUrl,
   });
 }
 
@@ -174,7 +179,7 @@ export default function DeliveryPage() {
     setBatchResult(null);
 
     const pendingWithEmail = generatedRecords.filter(
-      (r) => !r.sentAt && r.pmEmail,
+      (r) => !r.sentAt && r.pmEmail && !r.pmOptedOut,
     );
     pendingWithEmail.forEach((r) =>
       setSendState(r.id, { kind: "sending" }),
@@ -337,10 +342,13 @@ export default function DeliveryPage() {
   const generatedRecords = records.filter((r) => r.status === "generated");
   const sentCount = generatedRecords.filter((r) => r.sentAt).length;
   const pendingWithEmail = generatedRecords.filter(
-    (r) => !r.sentAt && r.pmEmail,
+    (r) => !r.sentAt && r.pmEmail && !r.pmOptedOut,
   );
   const pendingWithoutEmail = generatedRecords.filter(
     (r) => !r.sentAt && !r.pmEmail,
+  );
+  const pendingOptedOut = generatedRecords.filter(
+    (r) => !r.sentAt && r.pmEmail && r.pmOptedOut,
   );
 
   return (
@@ -363,6 +371,11 @@ export default function DeliveryPage() {
             {pendingWithoutEmail.length > 0 && (
               <>
                 {" "}&middot; {pendingWithoutEmail.length} missing email
+              </>
+            )}
+            {pendingOptedOut.length > 0 && (
+              <>
+                {" "}&middot; {pendingOptedOut.length} unsubscribed
               </>
             )}
           </p>
@@ -496,6 +509,14 @@ export default function DeliveryPage() {
                           </span>
                         </>
                       )}
+                      {rec.pmOptedOut && (
+                        <>
+                          {" "}&middot;{" "}
+                          <span className="font-medium text-amber-600">
+                            unsubscribed
+                          </span>
+                        </>
+                      )}
                     </p>
                   </div>
                 </button>
@@ -525,6 +546,16 @@ export default function DeliveryPage() {
                     >
                       <MailX className="size-3" />
                       No email
+                    </Button>
+                  ) : rec.pmOptedOut ? (
+                    <Button
+                      size="sm"
+                      disabled
+                      variant="outline"
+                      className="text-amber-600"
+                    >
+                      <MailX className="size-3" />
+                      Unsubscribed
                     </Button>
                   ) : isSent ? (
                     <Button

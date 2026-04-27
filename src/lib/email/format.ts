@@ -69,6 +69,7 @@ export function buildEmailHtml(input: {
   period: string;
   tileImageSrc: string;
   downloadLinks: DownloadLink[];
+  unsubscribeUrl: string;
 }): string {
   const {
     firstName,
@@ -77,6 +78,7 @@ export function buildEmailHtml(input: {
     period,
     tileImageSrc,
     downloadLinks,
+    unsubscribeUrl,
   } = input;
 
   const niceTime = naturalTime(responseTimeMins);
@@ -156,6 +158,7 @@ export function buildEmailHtml(input: {
           </tr>
         </table>
         <p style="margin:16px 0 0 0;font-size:12px;color:#9A9BA7;">Powered by Ailo</p>
+        <p style="margin:8px 0 0 0;font-size:12px;color:#9A9BA7;">Don't want to receive these? <a href="${unsubscribeUrl}" style="color:#9A9BA7;text-decoration:underline;">Unsubscribe</a></p>
       </td>
     </tr>
   </table>
@@ -169,9 +172,16 @@ export function buildEmailText(input: {
   responseTimeMins: number;
   period: string;
   downloadLinks: DownloadLink[];
+  unsubscribeUrl: string;
 }): string {
-  const { firstName, agencyName, responseTimeMins, period, downloadLinks } =
-    input;
+  const {
+    firstName,
+    agencyName,
+    responseTimeMins,
+    period,
+    downloadLinks,
+    unsubscribeUrl,
+  } = input;
   const niceTime = naturalTime(responseTimeMins);
   const linksBlock =
     downloadLinks.length === 0
@@ -200,5 +210,8 @@ No pressure to post — you've earned the recognition either way.
 
 Thanks for everything you do,
 The Ailo Team
+
+---
+Don't want to receive these? Unsubscribe: ${unsubscribeUrl}
 `;
 }

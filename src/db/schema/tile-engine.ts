@@ -5,6 +5,7 @@ import {
   timestamp,
   integer,
   numeric,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 export const gkAgencies = pgTable("gk_agencies", {
@@ -25,6 +26,8 @@ export const gkPms = pgTable("gk_pms", {
     .references(() => gkAgencies.id)
     .notNull(),
   headshotUrl: text("headshot_url"),
+  optedOut: boolean("opted_out").notNull().default(false),
+  optedOutAt: timestamp("opted_out_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

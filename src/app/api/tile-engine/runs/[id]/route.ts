@@ -49,6 +49,7 @@ export async function GET(
         pmFirstName: gkPms.firstName,
         pmLastName: gkPms.lastName,
         pmEmail: gkPms.email,
+        pmOptedOut: gkPms.optedOut,
       })
       .from(gkTileRecords)
       .innerJoin(gkPms, eq(gkTileRecords.pmId, gkPms.id))

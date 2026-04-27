@@ -39,6 +39,7 @@ export async function GET(
     const [row] = await db
       .select({
         recordId: gkTileRecords.id,
+        pmId: gkTileRecords.pmId,
         responseTimeMins: gkTileRecords.responseTimeMins,
         agencyName: sql<string>`coalesce(${gkAgencies.displayName}, ${gkAgencies.name}, ${gkTileRecords.agencyName})`,
         tileUrlSquare: gkTileRecords.tileUrlSquare,
@@ -68,6 +69,7 @@ export async function GET(
 
     const baseUrl = getBaseUrl(request);
     const downloadAllUrl = `${baseUrl}/api/tile-engine/records/${row.recordId}/download-all`;
+    const unsubscribeUrl = `${baseUrl}/unsubscribe/${row.pmId}`;
 
     const downloadLinks = buildDownloadLinks({
       tileUrlSquareNamed: row.tileUrlSquareNamed,
@@ -83,6 +85,7 @@ export async function GET(
       period: row.period,
       tileImageSrc,
       downloadLinks,
+      unsubscribeUrl,
     });
 
     return new NextResponse(html, {

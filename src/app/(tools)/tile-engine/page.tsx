@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
@@ -13,7 +13,18 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  History,
 } from "lucide-react";
+
+type PastRun = {
+  id: string;
+  period: string;
+  status: string;
+  totalPms: number;
+  tilesGenerated: number;
+  sentCount: number;
+  createdAt: string;
+};
 
 type Step = "upload" | "map" | "filter" | "validate" | "review" | "complete";
 
@@ -118,6 +129,23 @@ export default function TileEnginePage() {
       missingAssets: number;
     };
   } | null>(null);
+  const [pastRuns, setPastRuns] = useState<PastRun[] | null>(null);
+
+  useEffect(() => {
+    if (step !== "upload") return;
+    let cancelled = false;
+    fetch("/api/tile-engine/runs")
+      .then((r) => (r.ok ? r.json() : { runs: [] }))
+      .then((d) => {
+        if (!cancelled) setPastRuns(d.runs ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setPastRuns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step]);
 
   function handleFileUpload(file: File) {
     Papa.parse(file, {
@@ -452,28 +480,124 @@ export default function TileEnginePage() {
 
       {/* Step 1: Upload */}
       {step === "upload" && (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-12 text-center">
-          <Upload className="mx-auto mb-4 size-10 text-[#9A9BA7]" />
-          <p className="mb-4 text-sm text-[#292B32]">
-            Drop a CSV file here or click to browse
-          </p>
-          <input
-            type="file"
-            accept=".csv"
-            className="hidden"
-            id="csv-upload"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileUpload(file);
-            }}
-          />
-          <Button
-            className="bg-[#EE0B4F] hover:bg-[#d40945]"
-            onClick={() => document.getElementById("csv-upload")?.click()}
-          >
-            Choose CSV file
-          </Button>
-        </div>
+        <>
+          <div className="rounded-xl border border-dashed border-gray-300 bg-white p-12 text-center">
+            <Upload className="mx-auto mb-4 size-10 text-[#9A9BA7]" />
+            <p className="mb-4 text-sm text-[#292B32]">
+              Drop a CSV file here or click to browse
+            </p>
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              id="csv-upload"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+              }}
+            />
+            <Button
+              className="bg-[#EE0B4F] hover:bg-[#d40945]"
+              onClick={() => document.getElementById("csv-upload")?.click()}
+            >
+              Choose CSV file
+            </Button>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
+            <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-3">
+              <History className="size-4 text-[#9A9BA7]" />
+              <h2 className="text-sm font-semibold text-[#292B32]">
+                Past runs
+              </h2>
+              {pastRuns && (
+                <span className="text-xs text-[#9A9BA7]">
+                  &middot; {pastRuns.length}{" "}
+                  {pastRuns.length === 1 ? "run" : "runs"}
+                </span>
+              )}
+            </div>
+            {pastRuns === null ? (
+              <div className="flex items-center justify-center px-5 py-10 text-sm text-[#9A9BA7]">
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Loading past runs...
+              </div>
+            ) : pastRuns.length === 0 ? (
+              <div className="px-5 py-10 text-center text-sm text-[#9A9BA7]">
+                No past runs yet. Upload a CSV above to create your first one.
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50/50">
+                    <th className="px-5 py-2 text-left text-xs font-medium text-[#9A9BA7]">
+                      Period
+                    </th>
+                    <th className="px-5 py-2 text-left text-xs font-medium text-[#9A9BA7]">
+                      Created
+                    </th>
+                    <th className="px-5 py-2 text-right text-xs font-medium text-[#9A9BA7]">
+                      PMs
+                    </th>
+                    <th className="px-5 py-2 text-right text-xs font-medium text-[#9A9BA7]">
+                      Tiles
+                    </th>
+                    <th className="px-5 py-2 text-right text-xs font-medium text-[#9A9BA7]">
+                      Sent
+                    </th>
+                    <th className="px-5 py-2 text-left text-xs font-medium text-[#9A9BA7]">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pastRuns.map((r) => (
+                    <tr
+                      key={r.id}
+                      onClick={() =>
+                        router.push(`/tile-engine/runs/${r.id}`)
+                      }
+                      className="cursor-pointer border-b border-gray-50 last:border-b-0 hover:bg-[#FEF7F9]/40"
+                    >
+                      <td className="px-5 py-3 font-medium text-[#292B32]">
+                        {r.period}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-[#9A9BA7]">
+                        {new Date(r.createdAt).toLocaleDateString("en-AU", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </td>
+                      <td className="px-5 py-3 text-right text-[#292B32]">
+                        {r.totalPms}
+                      </td>
+                      <td className="px-5 py-3 text-right text-[#292B32]">
+                        {r.tilesGenerated}
+                      </td>
+                      <td className="px-5 py-3 text-right text-[#292B32]">
+                        {r.sentCount}
+                      </td>
+                      <td className="px-5 py-3">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                            r.status === "complete"
+                              ? "bg-green-50 text-green-700"
+                              : r.status === "processing"
+                                ? "bg-blue-50 text-blue-700"
+                                : "bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          {r.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
       )}
 
       {/* Step 2: Map columns */}

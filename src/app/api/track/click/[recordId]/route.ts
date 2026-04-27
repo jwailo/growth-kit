@@ -73,5 +73,13 @@ export async function GET(
     }
   }
 
-  return NextResponse.redirect(destination, 302);
+  return new NextResponse(null, {
+    status: 302,
+    headers: {
+      Location: destination,
+      "Cache-Control": "no-cache, no-store, must-revalidate, private",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  });
 }

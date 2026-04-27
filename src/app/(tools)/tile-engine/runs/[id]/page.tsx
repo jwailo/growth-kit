@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Mail,
   RotateCcw,
+  BarChart3,
 } from "lucide-react";
 
 type Run = {
@@ -249,6 +250,15 @@ export default function RunDetailPage() {
                 <Download className="size-4" />
               )}
               Download all
+            </Button>
+          )}
+          {generatedRecords.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => router.push(`/tile-engine/runs/${id}/analytics`)}
+            >
+              <BarChart3 className="size-4" />
+              Analytics
             </Button>
           )}
           {generatedRecords.length > 0 && (

@@ -21,6 +21,7 @@ import {
   X,
   Eye,
   Link as LinkIcon,
+  BarChart3,
 } from "lucide-react";
 
 type PerPmAnalytics = {
@@ -440,6 +441,13 @@ export default function DeliveryPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/tile-engine/runs/${id}/analytics`)}
+          >
+            <BarChart3 className="size-4" />
+            Analytics
+          </Button>
           <Button variant="outline" onClick={copyAllEmails}>
             {copiedId === "all-emails" ? (
               <Check className="size-4" />

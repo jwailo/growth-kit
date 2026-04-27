@@ -61,3 +61,19 @@ export const gkTileRecords = pgTable("gk_tile_records", {
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const gkEmailEvents = pgTable("gk_email_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  tileRecordId: uuid("tile_record_id")
+    .references(() => gkTileRecords.id)
+    .notNull(),
+  pmId: uuid("pm_id")
+    .references(() => gkPms.id)
+    .notNull(),
+  eventType: text("event_type").notNull(),
+  linkName: text("link_name"),
+  destinationUrl: text("destination_url"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

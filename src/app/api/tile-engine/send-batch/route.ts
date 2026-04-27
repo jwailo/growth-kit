@@ -112,6 +112,8 @@ export async function POST(request: Request) {
         tileUrlIgNamed: row.tileUrlIgNamed,
         downloadAllUrl,
         unsubscribeUrl,
+        trackingBaseUrl: baseUrl,
+        recordId: row.recordId,
       });
 
       if (result.ok) {

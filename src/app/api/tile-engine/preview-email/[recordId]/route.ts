@@ -86,6 +86,9 @@ export async function GET(
       tileImageSrc,
       downloadLinks,
       unsubscribeUrl,
+      trackingBaseUrl: baseUrl,
+      recordId: row.recordId,
+      track: false,
     });
 
     return new NextResponse(html, {

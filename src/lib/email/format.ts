@@ -1,7 +1,14 @@
+export type DownloadLinkName =
+  | "tile_square_named"
+  | "tile_ig"
+  | "tile_ig_named"
+  | "download_all";
+
 export type DownloadLink = {
   url: string;
   label: string;
   description: string;
+  name: DownloadLinkName;
 };
 
 export function getSubjectLine(period: string): string {
@@ -36,6 +43,7 @@ export function buildDownloadLinks(input: {
       url: input.tileUrlSquareNamed,
       label: "Square version with your name",
       description: "For when your agency shares it and tags you",
+      name: "tile_square_named",
     });
   }
   if (input.tileUrlIg) {
@@ -43,6 +51,7 @@ export function buildDownloadLinks(input: {
       url: input.tileUrlIg,
       label: "Instagram version",
       description: "Optimised for Instagram feed posts",
+      name: "tile_ig",
     });
   }
   if (input.tileUrlIgNamed) {
@@ -50,6 +59,7 @@ export function buildDownloadLinks(input: {
       url: input.tileUrlIgNamed,
       label: "Instagram version with your name",
       description: "For agency Instagram posts",
+      name: "tile_ig_named",
     });
   }
   if (input.downloadAllUrl) {
@@ -57,9 +67,23 @@ export function buildDownloadLinks(input: {
       url: input.downloadAllUrl,
       label: "Download all versions",
       description: "ZIP with every variant",
+      name: "download_all",
     });
   }
   return links;
+}
+
+function makeClickWrapper(input: {
+  trackingBaseUrl: string;
+  recordId: string;
+  track: boolean;
+}): (url: string, name: string) => string {
+  if (!input.track) return (url) => url;
+  const { trackingBaseUrl, recordId } = input;
+  return (url, name) =>
+    `${trackingBaseUrl}/api/track/click/${recordId}?url=${encodeURIComponent(
+      url,
+    )}&link=${encodeURIComponent(name)}`;
 }
 
 export function buildEmailHtml(input: {
@@ -70,6 +94,9 @@ export function buildEmailHtml(input: {
   tileImageSrc: string;
   downloadLinks: DownloadLink[];
   unsubscribeUrl: string;
+  trackingBaseUrl: string;
+  recordId: string;
+  track?: boolean;
 }): string {
   const {
     firstName,
@@ -79,7 +106,11 @@ export function buildEmailHtml(input: {
     tileImageSrc,
     downloadLinks,
     unsubscribeUrl,
+    trackingBaseUrl,
+    recordId,
   } = input;
+  const track = input.track ?? true;
+  const wrap = makeClickWrapper({ trackingBaseUrl, recordId, track });
 
   const niceTime = naturalTime(responseTimeMins);
 
@@ -96,13 +127,18 @@ export function buildEmailHtml(input: {
               ${downloadLinks
                 .map(
                   (link) => `<div style="margin-bottom:10px;">
-                <a href="${link.url}" style="color:#EE0B4F;text-decoration:none;font-weight:600;font-size:15px;">${link.label} &rarr;</a>
+                <a href="${wrap(link.url, link.name)}" style="color:#EE0B4F;text-decoration:none;font-weight:600;font-size:15px;">${link.label} &rarr;</a>
                 <p style="margin:2px 0 0 0;font-size:13px;color:#9A9BA7;line-height:1.5;">${link.description}</p>
               </div>`,
                 )
                 .join("\n              ")}
             </td>
           </tr>`;
+
+  const trackedUnsubscribeHref = wrap(unsubscribeUrl, "unsubscribe");
+  const trackingPixel = track
+    ? `<img src="${trackingBaseUrl}/api/track/open/${recordId}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;" />`
+    : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -158,10 +194,11 @@ export function buildEmailHtml(input: {
           </tr>
         </table>
         <p style="margin:16px 0 0 0;font-size:12px;color:#9A9BA7;">Powered by Ailo</p>
-        <p style="margin:8px 0 0 0;font-size:12px;color:#9A9BA7;">Don't want to receive these? <a href="${unsubscribeUrl}" style="color:#9A9BA7;text-decoration:underline;">Unsubscribe</a></p>
+        <p style="margin:8px 0 0 0;font-size:12px;color:#9A9BA7;">Don't want to receive these? <a href="${trackedUnsubscribeHref}" style="color:#9A9BA7;text-decoration:underline;">Unsubscribe</a></p>
       </td>
     </tr>
   </table>
+  ${trackingPixel}
 </body>
 </html>`;
 }

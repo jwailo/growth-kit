@@ -20,6 +20,8 @@ export type SendTileEmailInput = {
   tileUrlIgNamed?: string | null;
   downloadAllUrl?: string | null;
   unsubscribeUrl: string;
+  trackingBaseUrl: string;
+  recordId: string;
 };
 
 export type SendTileEmailResult = {
@@ -83,6 +85,8 @@ export async function sendTileEmail(
       tileImageSrc: `cid:${tileCid}`,
       downloadLinks,
       unsubscribeUrl: input.unsubscribeUrl,
+      trackingBaseUrl: input.trackingBaseUrl,
+      recordId: input.recordId,
     });
     const text = buildEmailText({
       firstName: input.firstName,

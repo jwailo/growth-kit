@@ -20,7 +20,53 @@ import {
   MailX,
   X,
   Eye,
+  Link as LinkIcon,
 } from "lucide-react";
+
+type PerPmAnalytics = {
+  opened: boolean;
+  firstOpenedAt: string | null;
+  clicked: boolean;
+  linksClicked: string[];
+};
+
+type Analytics = {
+  totalSent: number;
+  opened: number;
+  openRate: number;
+  clicked: number;
+  clickRate: number;
+  totalClicks: number;
+  clicksByLink: Record<string, number>;
+  perPm: Record<string, PerPmAnalytics>;
+};
+
+const LINK_LABELS: Record<string, string> = {
+  tile_square_named: "Square (named)",
+  tile_ig: "Instagram",
+  tile_ig_named: "Instagram (named)",
+  download_all: "Download all",
+  unsubscribe: "Unsubscribe",
+};
+
+function formatRate(value: number): string {
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function formatLinkName(name: string): string {
+  return LINK_LABELS[name] ?? name;
+}
+
+function formatTimestamp(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("en-AU", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
 
 type Run = {
   id: string;
@@ -101,6 +147,7 @@ export default function DeliveryPage() {
     Record<string, "html" | "text">
   >({});
   const [modalRecordId, setModalRecordId] = useState<string | null>(null);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") setOrigin(window.location.origin);
@@ -115,8 +162,19 @@ export default function DeliveryPage() {
     }
   }
 
+  async function fetchAnalytics() {
+    const res = await fetch(`/api/tile-engine/runs/${id}/analytics`);
+    if (res.ok) {
+      const data = (await res.json()) as Analytics;
+      setAnalytics(data);
+    }
+  }
+
   useEffect(() => {
     fetchRun();
+    fetchAnalytics();
+    const interval = setInterval(fetchAnalytics, 30_000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -226,6 +284,7 @@ export default function DeliveryPage() {
           return next;
         });
         await fetchRun();
+        await fetchAnalytics();
       } else {
         pendingWithEmail.forEach((r) =>
           setSendState(r.id, {
@@ -434,6 +493,73 @@ export default function DeliveryPage() {
         </div>
       </div>
 
+      {/* Engagement analytics */}
+      {analytics && analytics.totalSent > 0 && (() => {
+        const topLink = Object.entries(analytics.clicksByLink).sort(
+          (a, b) => b[1] - a[1],
+        )[0];
+        return (
+          <div className="rounded-xl border border-gray-100 bg-white p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold text-[#1C1E26]">Engagement</p>
+              <p className="text-xs text-[#9A9BA7]">
+                {analytics.totalSent} sent
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-[#9A9BA7]">Open rate</p>
+                <p className="text-2xl font-semibold text-[#1C1E26]">
+                  {formatRate(analytics.openRate)}
+                </p>
+                <p className="text-xs text-[#9A9BA7]">
+                  {analytics.opened} opened
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-[#9A9BA7]">Click rate</p>
+                <p className="text-2xl font-semibold text-[#1C1E26]">
+                  {formatRate(analytics.clickRate)}
+                </p>
+                <p className="text-xs text-[#9A9BA7]">
+                  {analytics.clicked} clicked &middot; {analytics.totalClicks}{" "}
+                  total
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-[#9A9BA7]">Most clicked link</p>
+                {topLink ? (
+                  <>
+                    <p className="text-2xl font-semibold text-[#1C1E26]">
+                      {formatLinkName(topLink[0])}
+                    </p>
+                    <p className="text-xs text-[#9A9BA7]">
+                      {topLink[1]} click{topLink[1] === 1 ? "" : "s"}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-[#9A9BA7]">No clicks yet</p>
+                )}
+              </div>
+            </div>
+            {Object.keys(analytics.clicksByLink).length > 1 && (
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
+                {Object.entries(analytics.clicksByLink)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([name, count]) => (
+                    <span
+                      key={name}
+                      className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-[#292B32]"
+                    >
+                      {formatLinkName(name)}: {count}
+                    </span>
+                  ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Batch send summary */}
       {batchResult && (
         <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50/60 p-4">
@@ -467,6 +593,20 @@ export default function DeliveryPage() {
           const hasEmail = !!rec.pmEmail;
           const sending = sendState.kind === "sending";
           const failed = sendState.kind === "failed";
+          const pmAnalytics = analytics?.perPm[rec.id];
+          const opened = !!pmAnalytics?.opened;
+          const clicked = !!pmAnalytics?.clicked;
+          const openTooltip = pmAnalytics?.firstOpenedAt
+            ? `First opened ${formatTimestamp(pmAnalytics.firstOpenedAt)}`
+            : opened
+              ? "Opened"
+              : "Not opened yet";
+          const clickTooltip =
+            clicked && pmAnalytics
+              ? `Clicked: ${pmAnalytics.linksClicked
+                  .map(formatLinkName)
+                  .join(", ")}`
+              : "No clicks yet";
 
           return (
             <div
@@ -521,6 +661,30 @@ export default function DeliveryPage() {
                   </div>
                 </button>
                 <div className="flex items-center gap-2">
+                  {isSent && (
+                    <div className="mr-1 flex items-center gap-1">
+                      <span
+                        title={openTooltip}
+                        className={`flex size-7 items-center justify-center rounded-full ${
+                          opened
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-100 text-gray-400"
+                        }`}
+                      >
+                        <Eye className="size-3.5" />
+                      </span>
+                      <span
+                        title={clickTooltip}
+                        className={`flex size-7 items-center justify-center rounded-full ${
+                          clicked
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-100 text-gray-400"
+                        }`}
+                      >
+                        <LinkIcon className="size-3.5" />
+                      </span>
+                    </div>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"

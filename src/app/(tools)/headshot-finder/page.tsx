@@ -607,11 +607,13 @@ export default function HeadshotFinderPage() {
               const active = activeFilter === tab.key;
               return (
                 <button
+                  type="button"
                   key={tab.key}
                   onClick={() => setActiveFilter(tab.key)}
+                  aria-pressed={active}
                   className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                     active
-                      ? "bg-[#EE0B4F] text-white"
+                      ? "bg-[#EE0B4F] text-white shadow-sm"
                       : "bg-gray-100 text-[#292B32] hover:bg-gray-200"
                   }`}
                 >

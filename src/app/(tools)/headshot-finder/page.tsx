@@ -688,10 +688,40 @@ export default function HeadshotFinderPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleAgencies.map((a) => {
+              {(() => {
+                console.log(
+                  `[hf] about to render ${visibleAgencies.length} rows. first 3:`,
+                  visibleAgencies.slice(0, 3).map((a) => ({
+                    id: a.id,
+                    name: a.displayName || a.name,
+                    category: categoryFor(a),
+                    teamPageUrl: a.teamPageUrl,
+                    matchedCount: a.matchedCount,
+                  })),
+                );
+                const idCounts = new Map<string | undefined, number>();
+                for (const a of visibleAgencies) {
+                  idCounts.set(a.id, (idCounts.get(a.id) ?? 0) + 1);
+                }
+                const dupes = Array.from(idCounts.entries()).filter(
+                  ([, n]) => n > 1,
+                );
+                const undef = visibleAgencies.filter((a) => !a.id).length;
+                console.log(
+                  `[hf] key audit: visibleAgencies length=${visibleAgencies.length}, unique ids=${idCounts.size}, duplicate ids=${dupes.length}, missing ids=${undef}`,
+                  dupes.length > 0 ? { duplicates: dupes.slice(0, 5) } : "",
+                );
+                return null;
+              })()}
+              {visibleAgencies.map((a, idx) => {
                 const feedback = extractFeedback[a.id];
                 const showPostSavePrompt = postSavePromptAgencyId === a.id;
                 const canExtract = !!a.teamPageUrl && !!a.websiteId;
+                if (idx < 3) {
+                  console.log(
+                    `[hf] map render idx=${idx} key=${a.id} name="${a.displayName || a.name}" category=${categoryFor(a)}`,
+                  );
+                }
                 return (
                   <tr
                     key={a.id}

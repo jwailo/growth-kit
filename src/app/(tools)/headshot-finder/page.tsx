@@ -724,7 +724,7 @@ export default function HeadshotFinderPage() {
                 }
                 return (
                   <tr
-                    key={a.id}
+                    key={`${a.id}-${a.websiteId ?? "no-website"}`}
                     className="border-b border-gray-50 last:border-b-0"
                   >
                     <td className="px-5 py-3 align-top font-medium text-[#292B32]">

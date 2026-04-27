@@ -30,6 +30,8 @@ export async function GET() {
         teamPageUrl: gkAgencyWebsites.teamPageUrl,
         scrapeStatus: gkAgencyWebsites.scrapeStatus,
         lastScrapedAt: gkAgencyWebsites.lastScrapedAt,
+        extractedCount: gkAgencyWebsites.extractedCount,
+        matchedCount: gkAgencyWebsites.matchedCount,
       })
       .from(gkAgencies)
       .leftJoin(gkPms, eq(gkPms.agencyId, gkAgencies.id))

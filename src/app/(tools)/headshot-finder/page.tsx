@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -101,6 +101,35 @@ function statusForAgency(agency: Agency): StatusInfo {
   };
 }
 
+type FilterTab =
+  | "all"
+  | "needs_website"
+  | "needs_team_page"
+  | "ready_for_extraction"
+  | "has_headshots"
+  | "errors";
+
+const FILTER_TABS: { key: FilterTab; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "needs_website", label: "Needs website" },
+  { key: "needs_team_page", label: "Needs team page" },
+  { key: "ready_for_extraction", label: "Ready for extraction" },
+  { key: "has_headshots", label: "Has headshots" },
+  { key: "errors", label: "Errors" },
+];
+
+function categoryFor(
+  agency: Agency,
+): Exclude<FilterTab, "all"> {
+  if (!agency.websiteUrl) return "needs_website";
+  if (agency.scrapeStatus === "error") return "errors";
+  if (!agency.teamPageUrl || agency.scrapeStatus === "no_team_page") {
+    return "needs_team_page";
+  }
+  if ((agency.matchedCount ?? 0) > 0) return "has_headshots";
+  return "ready_for_extraction";
+}
+
 function StatusBadge({ agency }: { agency: Agency }) {
   const info = statusForAgency(agency);
   return (
@@ -159,6 +188,8 @@ export default function HeadshotFinderPage() {
   const [postSavePromptAgencyId, setPostSavePromptAgencyId] = useState<
     string | null
   >(null);
+  const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [running, setRunning] = useState<
     null | "discover" | "scrape" | "extract"
   >(null);
@@ -189,6 +220,35 @@ export default function HeadshotFinderPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const filterCounts = useMemo(() => {
+    const counts: Record<FilterTab, number> = {
+      all: agencies.length,
+      needs_website: 0,
+      needs_team_page: 0,
+      ready_for_extraction: 0,
+      has_headshots: 0,
+      errors: 0,
+    };
+    for (const a of agencies) {
+      counts[categoryFor(a)]++;
+    }
+    return counts;
+  }, [agencies]);
+
+  const visibleAgencies = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return agencies.filter((a) => {
+      if (activeFilter !== "all" && categoryFor(a) !== activeFilter) {
+        return false;
+      }
+      if (q) {
+        const haystack = `${a.displayName ?? ""} ${a.name}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [agencies, activeFilter, searchQuery]);
 
   const startEditing = (agencyId: string, field: EditField, value: string) => {
     setEditing({ agencyId, field });
@@ -537,8 +597,39 @@ export default function HeadshotFinderPage() {
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <h2 className="text-sm font-semibold text-[#292B32]">Agencies</h2>
           <p className="text-xs text-[#9A9BA7]">
-            {agencies.length} total
+            {visibleAgencies.length} of {agencies.length}
           </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-5 py-3">
+          <div className="flex flex-wrap gap-1">
+            {FILTER_TABS.map((tab) => {
+              const count = filterCounts[tab.key];
+              const active = activeFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveFilter(tab.key)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-[#EE0B4F] text-white"
+                      : "bg-gray-100 text-[#292B32] hover:bg-gray-200"
+                  }`}
+                >
+                  {tab.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+          <div className="relative ml-auto">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#9A9BA7]" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search agencies"
+              className="w-56 rounded-lg border border-gray-200 py-1.5 pl-8 pr-2 text-sm outline-none focus:border-[#EE0B4F]"
+            />
+          </div>
         </div>
         {loading ? (
           <div className="flex items-center justify-center px-5 py-12 text-sm text-[#9A9BA7]">
@@ -570,7 +661,7 @@ export default function HeadshotFinderPage() {
               </tr>
             </thead>
             <tbody>
-              {agencies.map((a) => {
+              {visibleAgencies.map((a) => {
                 const feedback = extractFeedback[a.id];
                 const showPostSavePrompt = postSavePromptAgencyId === a.id;
                 const canExtract = !!a.teamPageUrl && !!a.websiteId;
@@ -727,6 +818,16 @@ export default function HeadshotFinderPage() {
                     className="px-5 py-12 text-center text-sm text-[#9A9BA7]"
                   >
                     No agencies yet. Create a tile run to seed agencies.
+                  </td>
+                </tr>
+              )}
+              {agencies.length > 0 && visibleAgencies.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="px-5 py-12 text-center text-sm text-[#9A9BA7]"
+                  >
+                    No agencies match this filter or search.
                   </td>
                 </tr>
               )}

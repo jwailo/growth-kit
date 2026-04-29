@@ -14,6 +14,7 @@ Internal marketing/growth tools platform for Ailo.
 - Font: Helvetica Neue / Helvetica / Arial / sans-serif
 - Australian spelling, no em dashes
 - All server-side Supabase queries MUST include explicit user filters (lesson from ASET cross-user contamination bug)
+- All gk_* DB access must go through Drizzle/db. Never use the Supabase JS client to query gk_* tables (RLS is enabled on all gk_* tables; only the Drizzle postgres connection is permitted)
 
 ## Adding a New Tool
 1. Create route directory: src/app/(tools)/[tool-name]/
